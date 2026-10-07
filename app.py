@@ -26,6 +26,7 @@ import inspect
 import io
 import json
 import os
+from urllib.parse import quote
 import random
 import sqlite3
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
@@ -658,6 +659,15 @@ def c(lang: str, key: str) -> str:
     """Получить строку из блока ``common`` (названия сущностей)."""
     common_block: Dict[str, Any] = LANG.get(lang, LANG["RU"]).get("common", {})
     return str(common_block.get(key, key))
+
+
+def _clean_label(text: Any) -> str:
+    """Убрать ведущие эмодзи/служебные символы из подписи (LANG не меняем)."""
+    raw = str(text).strip()
+    index = 0
+    while index < len(raw) and not raw[index].isalnum():
+        index += 1
+    return raw[index:].strip()
 
 
 # ==================================================================
@@ -1371,299 +1381,1166 @@ def localized_statuses(lang: str, statuses: Sequence[str]) -> List[str]:
 #: CSS-оформление: Industrial Dark / Clean Pro.
 #: Тёмная «графитовая» палитра, карточки с рамками и hover-подсветкой,
 #: градиентные primary-кнопки, акцентные вкладки и статусные чипы.
-_APP_CSS = """
+_DESIGN_CSS = """
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Roboto+Condensed:wght@500;600;700&family=JetBrains+Mono:wght@500;700&display=swap');
 
-    :root {
-        --naryad-bg: #0d1117;
-        --naryad-bg-2: #161b22;
-        --naryad-card: #1f242d;
-        --naryad-card-2: #21262d;
-        --naryad-border: #30363d;
-        --naryad-text: #e6edf3;
-        --naryad-muted: #8b949e;
-        --naryad-accent: #1f6feb;
-        --naryad-accent-2: #2563eb;
-        --naryad-amber: #ff9800;
-        --naryad-green: #3fb950;
-        --naryad-red: #f85149;
-        --naryad-yellow: #e3b341;
-        --naryad-blue: #58a6ff;
-        --naryad-cyan: #22d3ee;
+    __ROOT__
+
+    /* ============================================================
+       БАЗА
+       ============================================================ */
+    html, body, [class*="css"], .stApp, button, input, textarea, select,
+    [data-testid="stAppViewContainer"] {
+        font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif !important;
+    }
+    .stApp,
+    [data-testid="stAppViewContainer"] {
+        color: var(--text) !important;
+        background-color: var(--bg) !important;
+        background-image:
+            radial-gradient(ellipse 120% 100% at 50% 45%, transparent 55%, var(--vignette) 100%),
+            var(--topo),
+            var(--topo),
+            repeating-linear-gradient(0deg, var(--grid-line) 0 1px, transparent 1px 48px),
+            repeating-linear-gradient(90deg, var(--grid-line) 0 1px, transparent 1px 48px);
+        background-position: center, right -80px bottom -70px, left -130px top -110px, 0 0, 0 0;
+        background-size: cover, 760px 570px, 760px 570px, auto, auto;
+        background-repeat: no-repeat, no-repeat, no-repeat, repeat, repeat;
+        background-attachment: fixed, fixed, fixed, fixed, fixed;
+    }
+    [data-testid="stHeader"] { background: transparent !important; }
+    .block-container {
+        padding-top: 1.2rem !important;
+        padding-bottom: 3rem !important;
+        max-width: 1500px !important;
+    }
+    h1, h2, h3, h4, h5, h6 {
+        font-family: 'Roboto Condensed', 'Inter', sans-serif !important;
+        color: var(--text) !important;
+        text-transform: uppercase;
+        font-weight: 700 !important;
+        letter-spacing: 1px !important;
+    }
+    h2::after, h3::after {
+        content: '';
+        display: block;
+        width: 48px;
+        height: 2px;
+        background: var(--accent);
+        margin-top: 8px;
+    }
+    .naryad-hero h2::after,
+    .naryad-brand h3::after,
+    .naryad-footer h2::after { display: none; }
+    p, span, label, li, div { color: var(--text); }
+    small, .stCaption, [data-testid="stCaptionContainer"] {
+        color: var(--muted) !important;
+        letter-spacing: 0.4px;
+    }
+    a { color: var(--steel) !important; }
+    hr, div[data-testid="stDivider"] hr { border-color: var(--border) !important; }
+
+    /* ---------- Скрыть служебные элементы Streamlit ---------- */
+    footer,
+    [data-testid="stFooter"],
+    #MainMenu,
+    [data-testid="stStatusWidget"] {
+        visibility: hidden !important;
+        height: 0 !important;
     }
 
-    html, body, [class*="css"], .stApp, button, input, textarea, select {
-        font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    /* ---------- Скроллбар и выделение ---------- */
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb {
+        background: var(--steel);
+        border-radius: 0;
+        border: 2px solid transparent;
+        background-clip: padding-box;
     }
-    .stApp { background: var(--naryad-bg); color: var(--naryad-text); }
-    section[data-testid="stSidebar"] {
-        background: var(--naryad-bg-2);
-        border-right: 1px solid var(--naryad-border);
-    }
-    h1, h2, h3, h4, h5, h6 { color: var(--naryad-text); letter-spacing: -0.01em; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--accent); background-clip: padding-box; }
+    ::selection { background: var(--accent); color: var(--button-text); }
 
-    /* --- Карточки и контейнеры (матовые графитовые панели) --- */
+    /* ============================================================
+       КАРТОЧКИ И ТЕХНИЧЕСКИЕ УГОЛКИ
+       ============================================================ */
     div[data-testid="stVerticalBlockBorderWrapper"] {
-        border-radius: 8px;
-        border: 1px solid #2a323d;
-        background: #161b22;
-        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
-        padding: 24px;
-        transition: border-color 0.3s ease, box-shadow 0.3s ease;
+        position: relative;
+        border-radius: 6px !important;
+        border: 1px solid var(--border) !important;
+        background: var(--card) !important;
+        box-shadow: var(--shadow) !important;
+        padding: 24px !important;
+        transition: border-color 0.2s ease, background 0.2s ease !important;
     }
     div[data-testid="stVerticalBlockBorderWrapper"]:hover {
-        border-color: #3b4757;
-        box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+        border-color: var(--steel) !important;
+        background: var(--card-hover) !important;
+    }
+    .naryad-stat,
+    .naryad-hero,
+    div[data-testid="stExpander"] { position: relative; }
+    .naryad-stat::before,
+    .naryad-hero::before,
+    div[data-testid="stExpander"]::before {
+        content: '';
+        position: absolute;
+        top: 5px; left: 5px;
+        width: 10px; height: 10px;
+        border-top: 2px solid var(--steel);
+        border-left: 2px solid var(--steel);
+        opacity: 0.4;
+        pointer-events: none;
+    }
+    .naryad-stat::after,
+    .naryad-hero::after,
+    div[data-testid="stExpander"]::after {
+        content: '';
+        position: absolute;
+        bottom: 5px; right: 5px;
+        width: 10px; height: 10px;
+        border-bottom: 2px solid var(--steel);
+        border-right: 2px solid var(--steel);
+        opacity: 0.4;
+        pointer-events: none;
     }
 
-    /* --- KPI-метрики (строгие приборные панели) --- */
-    div[data-testid="stMetric"] {
-        background: #161b22;
-        border: 1px solid #2a323d;
-        border-bottom: 2px solid #2a323d;
-        border-radius: 8px;
-        padding: 14px 18px 12px 18px;
-        transition: border-color 0.25s ease, box-shadow 0.25s ease;
-    }
-    div[data-testid="stMetric"]:hover {
-        border-color: #1f6feb;
-        box-shadow: 0 0 0 1px rgba(31, 111, 235, 0.22);
-    }
-    div[data-testid="stMetricLabel"] {
-        color: var(--naryad-muted);
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-        font-size: 0.72rem;
-    }
-    div[data-testid="stMetricValue"] { color: var(--naryad-text); font-weight: 800; }
-
-    /* --- Кнопки --- */
-    div.stButton > button, div.stDownloadButton > button {
-        border-radius: 10px;
-        min-height: 44px;
-        padding: 0.6rem 1.1rem;
-        font-weight: 650;
-        border: 1px solid var(--naryad-border);
-        background: var(--naryad-card-2);
-        color: var(--naryad-text);
-        transition: all 0.2s ease;
-    }
-    div.stButton > button:hover, div.stDownloadButton > button:hover {
-        border-color: var(--naryad-accent);
-        color: #ffffff;
-        transform: translateY(-1px);
-        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
-    }
-    div.stButton > button:active, div.stDownloadButton > button:active {
-        transform: scale(0.97);
-    }
-    div.stButton > button[kind="primary"], div.stDownloadButton > button[kind="primary"] {
-        background: linear-gradient(180deg, #1f6feb 0%, #2563eb 100%);
-        border: none;
-        color: #ffffff;
-        font-weight: 700;
-        box-shadow: 0 4px 16px rgba(31, 111, 235, 0.35);
-    }
-    div.stButton > button[kind="primary"]:hover, div.stDownloadButton > button[kind="primary"]:hover {
-        color: #ffffff;
-        box-shadow: 0 8px 24px rgba(31, 111, 235, 0.5);
-    }
-
-    /* --- Вкладки --- */
-    div[data-testid="stTabs"] button[role="tab"] {
-        font-weight: 600;
-        color: var(--naryad-muted);
-        border-bottom: 2px solid transparent;
-        background: transparent;
-        transition: all 0.2s ease;
-    }
-    div[data-testid="stTabs"] button[role="tab"]:hover { color: var(--naryad-text); }
-    div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
-        color: var(--naryad-text);
-        border-bottom: 2px solid var(--naryad-accent);
-    }
-
-    /* --- Поля ввода (контрастная рамка при фокусе) --- */
-    div[data-baseweb="input"],
-    div[data-baseweb="textarea"],
-    div[data-baseweb="select"] > div {
-        background: #0d1117;
-        border: 1px solid #2a323d;
-        border-radius: 8px;
-        transition: border-color 0.2s ease, box-shadow 0.2s ease;
-    }
-    div[data-baseweb="input"]:focus-within,
-    div[data-baseweb="textarea"]:focus-within,
-    div[data-baseweb="select"]:focus-within > div {
-        border-color: #1f6feb;
-        box-shadow: 0 0 0 3px rgba(31, 111, 235, 0.25);
-    }
-    div[data-baseweb="input"] input,
-    div[data-baseweb="textarea"] textarea {
-        background: transparent;
-        color: var(--naryad-text);
-    }
-
-    /* --- Таблицы, раскрывающиеся блоки, загрузчик --- */
-    div[data-testid="stDataFrame"] {
-        border-radius: 8px;
-        border: 1px solid #2a323d;
-        overflow: hidden;
-    }
-    div[data-testid="stExpander"] details {
-        border-radius: 8px;
-        border: 1px solid #2a323d;
-        background: #161b22;
-    }
-    section[data-testid="stFileUploaderDropzone"] {
-        border-radius: 8px;
-        border: 1px dashed #2a323d;
-        background: #0d1117;
-    }
-
-    /* --- Статусные бейджи (чипы) --- */
+    /* ============================================================
+       БЕЙДЖИ СТАТУСОВ / ПРИОРИТЕТОВ
+       ============================================================ */
     .naryad-badge {
         display: inline-block;
         padding: 2px 10px;
-        border-radius: 20px;
+        border-radius: 3px;
         font-weight: 600;
-        font-size: 0.78rem;
+        font-size: 0.74rem;
         line-height: 1.6;
         margin: 0 4px 2px 0;
         white-space: nowrap;
-    }
-    .naryad-badge-green  { background: rgba(46, 160, 67, 0.15);  color: #3fb950; border: 1px solid rgba(46, 160, 67, 0.4); }
-    .naryad-badge-red    { background: rgba(248, 81, 73, 0.15);  color: #f85149; border: 1px solid rgba(248, 81, 73, 0.4); }
-    .naryad-badge-yellow { background: rgba(227, 179, 65, 0.15); color: #e3b341; border: 1px solid rgba(227, 179, 65, 0.4); }
-    .naryad-badge-blue   { background: rgba(88, 166, 255, 0.15); color: #58a6ff; border: 1px solid rgba(88, 166, 255, 0.4); }
-    .naryad-badge-gray   { background: rgba(139, 148, 158, 0.15); color: #8b949e; border: 1px solid rgba(139, 148, 158, 0.4); }
-
-    /* --- Hero: Industrial Corporate Header --- */
-    .naryad-hero {
-        position: relative;
-        overflow: hidden;
-        border-radius: 10px;
-        padding: 34px 40px;
-        border: 1px solid #2a323d;
-        background:
-            linear-gradient(100deg, rgba(13, 17, 23, 0.94) 0%, rgba(13, 17, 23, 0.72) 45%, rgba(20, 28, 40, 0.55) 100%),
-            radial-gradient(1100px 320px at 86% 12%, rgba(31, 111, 235, 0.35), transparent 62%),
-            radial-gradient(820px 260px at 8% 108%, rgba(255, 152, 0, 0.16), transparent 60%),
-            repeating-linear-gradient(115deg, rgba(255, 255, 255, 0.035) 0 2px, transparent 2px 24px),
-            linear-gradient(160deg, #0b0f14 0%, #141b24 55%, #1b2634 100%);
-        box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.05);
-        margin-bottom: 16px;
-    }
-    .naryad-hero::after {
-        content: '';
-        position: absolute;
-        left: 0; top: 0; bottom: 0;
-        width: 6px;
-        background: linear-gradient(180deg, #ff9800, #1f6feb);
-    }
-    .naryad-hero-eyebrow {
-        color: #8fb3e0;
-        font-size: 0.72rem;
-        font-weight: 700;
-        letter-spacing: 0.22em;
         text-transform: uppercase;
-        margin-bottom: 10px;
+        letter-spacing: 0.4px;
     }
-    .naryad-hero h2 {
-        color: #ffffff;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        font-weight: 800;
-        font-size: 1.85rem;
-        margin: 0 0 8px 0;
-        line-height: 1.15;
-    }
-    .naryad-hero p { color: #9fb0c3; margin: 0; font-size: 0.98rem; }
+    .naryad-badge-green  { color: var(--success); background: rgba(79, 157, 105, 0.12);  background: color-mix(in srgb, var(--success) 12%, transparent); border: 1px solid rgba(79, 157, 105, 0.35); }
+    .naryad-badge-red    { color: var(--danger);  background: rgba(192, 80, 77, 0.12);   background: color-mix(in srgb, var(--danger) 12%, transparent);  border: 1px solid rgba(192, 80, 77, 0.35); }
+    .naryad-badge-yellow { color: var(--warning); background: rgba(217, 164, 65, 0.12);  background: color-mix(in srgb, var(--warning) 12%, transparent); border: 1px solid rgba(217, 164, 65, 0.35); }
+    .naryad-badge-blue   { color: var(--steel);   background: rgba(74, 107, 138, 0.15);  background: color-mix(in srgb, var(--steel) 15%, transparent);   border: 1px solid rgba(74, 107, 138, 0.4); }
+    .naryad-badge-gray   { color: var(--muted);   background: rgba(140, 150, 159, 0.14); background: color-mix(in srgb, var(--muted) 14%, transparent);   border: 1px solid rgba(140, 150, 159, 0.32); }
 
-    /* --- Брендинг в сайдбаре --- */
-    .naryad-brand {
-        position: relative;
-        overflow: hidden;
-        border-radius: 8px;
-        padding: 16px 18px;
-        background: #161b22;
-        border: 1px solid #2a323d;
-        color: #ffffff;
-        margin-bottom: 12px;
-    }
-    .naryad-brand::after {
-        content: '';
-        position: absolute;
-        left: 0; top: 0; bottom: 0;
-        width: 5px;
-        background: linear-gradient(180deg, #ff9800, #1f6feb);
-    }
-    .naryad-brand h3 { color: #ffffff; margin: 0; font-size: 1.2rem; letter-spacing: 0.02em; }
-    .naryad-brand p  { color: var(--naryad-muted); margin: 4px 0 0 0; font-size: 0.74rem; }
-
-    /* --- Карточка заключения ИИ --- */
+    /* ---------- Карточка заключения ИИ ---------- */
     .naryad-ai-card {
-        border-radius: 8px;
+        border-radius: 6px;
         padding: 18px 20px;
-        border: 1px solid #2a323d;
-        border-left: 5px solid var(--naryad-accent);
-        background: #161b22;
-        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+        border: 1px solid var(--border);
+        border-left: 4px solid var(--accent);
+        background: var(--card);
+        box-shadow: var(--shadow);
         margin: 10px 0;
-        color: var(--naryad-text);
+        color: var(--text) !important;
     }
-    .naryad-ai-card h4 { margin: 0 0 6px 0; color: var(--naryad-accent); }
-    .naryad-ai-card p  { margin: 0; color: var(--naryad-text); }
+    .naryad-ai-card h4 { margin: 0 0 6px 0; color: var(--accent) !important; }
+    .naryad-ai-card p  { margin: 0; color: var(--text) !important; }
 
-    /* --- Мобильный экран исполнителя --- */
+    /* ---------- Служебные маркеры ролей (не менять) ---------- */
     div[data-testid="stVerticalBlockBorderWrapper"]:has(.worker-card-marker) {
-        border-left: 6px solid var(--naryad-blue);
+        border-left: 4px solid var(--steel) !important;
     }
-    div[data-testid="stVerticalBlockBorderWrapper"]:has(.worker-prio-red)    { border-left-color: #f85149; }
-    div[data-testid="stVerticalBlockBorderWrapper"]:has(.worker-prio-yellow) { border-left-color: #e3b341; }
-    div[data-testid="stVerticalBlockBorderWrapper"]:has(.worker-prio-blue)   { border-left-color: #58a6ff; }
-    div[data-testid="stVerticalBlockBorderWrapper"]:has(.worker-prio-gray)   { border-left-color: #8b949e; }
-    div[data-testid="stVerticalBlock"]:has(.worker-actions-marker) div.stButton > button {
-        min-height: 56px;
-        font-size: 1.02rem;
-        font-weight: 700;
-        border-radius: 12px;
-    }
+    div[data-testid="stVerticalBlockBorderWrapper"]:has(.worker-prio-red)    { border-left-color: var(--danger) !important; }
+    div[data-testid="stVerticalBlockBorderWrapper"]:has(.worker-prio-yellow) { border-left-color: var(--warning) !important; }
+    div[data-testid="stVerticalBlockBorderWrapper"]:has(.worker-prio-blue)   { border-left-color: var(--steel) !important; }
+    div[data-testid="stVerticalBlockBorderWrapper"]:has(.worker-prio-gray)   { border-left-color: var(--muted) !important; }
     div[data-testid="stVerticalBlockBorderWrapper"]:has(.worker-cert-marker) {
-        border: 1px solid rgba(88, 166, 255, 0.45);
-        border-left: 5px solid var(--naryad-cyan);
-        background: #101a24;
+        border: 1px solid rgba(74, 107, 138, 0.5) !important;
+        border-left: 4px solid var(--steel) !important;
+        background: var(--card-hover) !important;
     }
     .naryad-cert-title {
-        font-weight: 800;
-        letter-spacing: 0.04em;
-        color: var(--naryad-cyan);
+        font-family: 'Roboto Condensed', sans-serif;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--accent) !important;
         margin-bottom: 6px;
-        font-size: 0.98rem;
+        font-size: 0.95rem;
     }
 
-    /* --- Пульсирующий радар безопасности (Alert Level 1) --- */
-    @keyframes naryad-pulse {
-        0%   { box-shadow: 0 0 0 0 rgba(248, 81, 73, 0.45); }
-        70%  { box-shadow: 0 0 0 14px rgba(248, 81, 73, 0); }
-        100% { box-shadow: 0 0 0 0 rgba(248, 81, 73, 0); }
-    }
+    /* ---------- Радар безопасности (Alert Level 1) ---------- */
     div[data-testid="stVerticalBlockBorderWrapper"]:has(.radar-marker) {
-        border: 1px solid rgba(248, 81, 73, 0.55);
-        background: #1a1114;
-        animation: naryad-pulse 2.2s infinite;
+        border: 1px solid rgba(192, 80, 77, 0.55) !important;
+        border-left: 4px solid var(--danger) !important;
+        background: var(--card) !important;
     }
     .naryad-alert-l1 {
         display: inline-block;
         padding: 3px 10px;
-        border-radius: 6px;
-        background: rgba(248, 81, 73, 0.15);
-        color: #f85149;
-        border: 1px solid rgba(248, 81, 73, 0.45);
+        border-radius: 3px;
+        background: rgba(192, 80, 77, 0.12);
+        background: color-mix(in srgb, var(--danger) 14%, transparent);
+        color: var(--danger);
+        border: 1px solid rgba(192, 80, 77, 0.45);
+        font-family: 'Roboto Condensed', sans-serif;
         font-weight: 700;
         font-size: 0.72rem;
-        letter-spacing: 0.08em;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+    }
+
+    /* ============================================================
+       БОКОВАЯ ПАНЕЛЬ
+       ============================================================ */
+    section[data-testid="stSidebar"] {
+        background: var(--bg-2) !important;
+        border-right: 1px solid var(--border) !important;
+    }
+    section[data-testid="stSidebar"] > div { padding: 20px 16px !important; }
+
+    .naryad-brand {
+        position: relative;
+        overflow: hidden;
+        border-radius: 6px !important;
+        padding: 16px 18px 16px 22px !important;
+        background: var(--card) !important;
+        border: 1px solid var(--border) !important;
+        border-left: 4px solid var(--accent) !important;
+        box-shadow: var(--shadow) !important;
+        margin-bottom: 16px !important;
+    }
+    .naryad-brand h3 {
+        font-family: 'Roboto Condensed', sans-serif !important;
+        color: var(--text) !important;
+        margin: 0 !important;
+        font-size: 1.15rem !important;
+        letter-spacing: 1px !important;
+    }
+    .naryad-brand p {
+        color: var(--muted) !important;
+        margin: 4px 0 0 0 !important;
+        font-size: 0.72rem !important;
+    }
+
+    section[data-testid="stSidebar"] div[data-testid="stSelectbox"],
+    section[data-testid="stSidebar"] div[data-testid="stToggle"] {
+        padding: 14px !important;
+        margin-bottom: 12px !important;
+        background: var(--card) !important;
+        border: 1px solid var(--border) !important;
+        border-radius: 6px !important;
+        transition: border-color 0.2s ease !important;
+    }
+    section[data-testid="stSidebar"] div[data-testid="stSelectbox"]:hover,
+    section[data-testid="stSidebar"] div[data-testid="stToggle"]:hover {
+        border-color: var(--steel) !important;
+    }
+
+    /* Выбор роли — вертикальные плашки */
+    section[data-testid="stSidebar"] div[role="radiogroup"] {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 6px !important;
+    }
+    section[data-testid="stSidebar"] div[role="radiogroup"] > label {
+        display: flex !important;
+        align-items: center !important;
+        width: 100% !important;
+        padding: 11px 13px !important;
+        margin: 0 !important;
+        border-radius: 4px !important;
+        border: 1px solid var(--border) !important;
+        background: transparent !important;
+        transition: background 0.2s ease, border-color 0.2s ease !important;
+        cursor: pointer !important;
+    }
+    section[data-testid="stSidebar"] div[role="radiogroup"] > label:hover {
+        background: var(--card-hover) !important;
+        border-color: var(--steel) !important;
+    }
+    section[data-testid="stSidebar"] div[role="radiogroup"] > label:has(input:checked) {
+        background: var(--accent) !important;
+        border-color: var(--accent) !important;
+    }
+    section[data-testid="stSidebar"] div[role="radiogroup"] > label p,
+    section[data-testid="stSidebar"] div[role="radiogroup"] > label span {
+        color: var(--text) !important;
+        font-weight: 600 !important;
+        font-size: 0.86rem !important;
+        margin: 0 !important;
+    }
+    section[data-testid="stSidebar"] div[role="radiogroup"] > label:has(input:checked) p,
+    section[data-testid="stSidebar"] div[role="radiogroup"] > label:has(input:checked) span {
+        color: var(--button-text) !important;
+    }
+    section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) [data-baseweb="radio"] > div:first-child {
+        border-color: var(--button-text) !important;
+        background: var(--button-text) !important;
+    }
+
+    /* ============================================================
+       HERO-БАННЕР
+       ============================================================ */
+    .naryad-hero {
+        position: relative;
+        overflow: hidden;
+        border-radius: 6px;
+        padding: 30px 34px;
+        margin-bottom: 24px;
+        border: 1px solid var(--border);
+        border-left: 4px solid var(--accent);
+        background-color: var(--card);
+        background-image: repeating-linear-gradient(45deg, transparent 0 14px, rgba(217, 130, 43, 0.04) 14px 28px);
+        box-shadow: var(--shadow);
+    }
+    .naryad-hero-top {
+        position: relative;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 16px;
+        margin-bottom: 14px;
+    }
+    .naryad-hero-eyebrow {
+        color: var(--accent) !important;
+        font-family: 'Roboto Condensed', sans-serif;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+    }
+    .naryad-hero h2 {
+        position: relative;
+        color: var(--text) !important;
+        font-family: 'Roboto Condensed', sans-serif;
+        font-size: 34px !important;
+        font-weight: 700 !important;
+        letter-spacing: 1px !important;
+        text-transform: uppercase !important;
+        margin: 0 0 10px 0 !important;
+        line-height: 1.12 !important;
+    }
+    .naryad-hero p {
+        position: relative;
+        color: var(--muted) !important;
+        margin: 0 !important;
+        font-size: 1rem;
+    }
+    .naryad-status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 5px 13px;
+        border-radius: 999px;
+        font-family: 'Roboto Condensed', sans-serif;
+        font-size: 0.74rem;
+        font-weight: 700;
+        letter-spacing: 0.6px;
+        text-transform: uppercase;
+        white-space: nowrap;
+        border: 1px solid var(--border);
+    }
+    .naryad-status-pill .dot {
+        width: 8px; height: 8px;
+        border-radius: 50%;
+        display: inline-block;
+    }
+    .naryad-status-online { color: var(--success) !important; border-color: rgba(79, 157, 105, 0.5); }
+    .naryad-status-online .dot { background: var(--success); }
+    .naryad-status-offline { color: var(--danger) !important; border-color: rgba(192, 80, 77, 0.5); }
+    .naryad-status-offline .dot { background: var(--danger); }
+
+    /* ============================================================
+       КАРТОЧКИ СТАТИСТИКИ
+       ============================================================ */
+    .naryad-stat {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-left: 4px solid var(--steel);
+        border-radius: 6px;
+        padding: 22px 24px;
+        box-shadow: var(--shadow);
+        transition: border-color 0.2s ease, background 0.2s ease;
+    }
+    .naryad-stat:hover { background: var(--card-hover); border-color: var(--steel); }
+    .naryad-stat-total   { border-left-color: var(--steel); }
+    .naryad-stat-inwork  { border-left-color: var(--warning); }
+    .naryad-stat-overdue { border-left-color: var(--danger); }
+    .naryad-stat-closed  { border-left-color: var(--success); }
+    .naryad-stat-label {
+        font-family: 'Roboto Condensed', sans-serif;
+        font-size: 0.72rem;
+        font-weight: 600;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        color: var(--muted) !important;
+    }
+    .naryad-stat-value {
+        font-family: 'JetBrains Mono', 'Roboto Mono', monospace;
+        font-size: 38px;
+        font-weight: 700;
+        line-height: 1.1;
+        margin-top: 6px;
+    }
+    .naryad-stat-caption { font-size: 11px; margin-top: 2px; }
+
+    /* ============================================================
+       ТАБЛИЦЫ, ВКЛАДКИ, АЛЕРТЫ, EXPANDER, МЕТРИКИ
+       ============================================================ */
+    div[data-testid="stDataFrame"],
+    div[data-testid="stTable"] {
+        border-radius: 6px !important;
+        border: 1px solid var(--border) !important;
+        overflow: hidden !important;
+        background: var(--card) !important;
+    }
+    div[data-testid="stDataFrame"] [role="columnheader"],
+    div[data-testid="stTable"] thead th {
+        background: var(--card-hover) !important;
+        color: var(--text) !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.5px !important;
+        font-weight: 700 !important;
+        font-size: 0.72rem !important;
+        border-color: var(--border) !important;
+    }
+    div[data-testid="stDataFrame"] [role="row"] { border-bottom: 1px solid var(--border) !important; }
+    div[data-testid="stDataFrame"] [role="row"]:hover { background: var(--card-hover) !important; }
+    div[data-testid="stTable"] tbody tr { border-bottom: 1px solid var(--border) !important; transition: background 0.2s ease !important; }
+    div[data-testid="stTable"] tbody tr:nth-child(even) td { background: var(--zebra) !important; }
+    div[data-testid="stTable"] tbody tr:hover { background: var(--card-hover) !important; }
+    div[data-testid="stTable"] tbody td { border-color: var(--border) !important; color: var(--text) !important; }
+    div[data-testid="stTable"] thead th { color: var(--text) !important; }
+
+    div[data-testid="stTabs"] div[data-baseweb="tab-list"] {
+        gap: 6px !important;
+        border-bottom: 1px solid var(--border) !important;
+    }
+    div[data-testid="stTabs"] button[role="tab"],
+    button[data-baseweb="tab"] {
+        background: transparent !important;
+        border: none !important;
+        border-bottom: 2px solid transparent !important;
+        border-radius: 0 !important;
+        padding: 10px 15px !important;
+        color: var(--muted) !important;
+        font-family: 'Roboto Condensed', sans-serif !important;
+        font-weight: 700 !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.6px !important;
+        font-size: 0.8rem !important;
+        transition: color 0.2s ease, border-color 0.2s ease !important;
+    }
+    div[data-testid="stTabs"] button[role="tab"]:hover,
+    button[data-baseweb="tab"]:hover { color: var(--text) !important; }
+    div[data-testid="stTabs"] button[role="tab"][aria-selected="true"],
+    button[data-baseweb="tab"][aria-selected="true"] {
+        color: var(--accent) !important;
+        border-bottom: 2px solid var(--accent) !important;
+    }
+    div[data-baseweb="tab-highlight"] { background-color: var(--accent) !important; height: 2px !important; }
+
+    div[data-testid="stAlert"],
+    div[data-baseweb="notification"] {
+        border-radius: 4px !important;
+        border: 1px solid var(--border) !important;
+        border-left: 4px solid var(--steel) !important;
+        background: var(--card) !important;
+        color: var(--text) !important;
+        box-shadow: none !important;
+    }
+    div[data-testid="stAlert"]:has([data-testid="stAlertContentSuccess"]),
+    div[data-baseweb="notification"][kind="positive"] {
+        border-left-color: var(--success) !important;
+        background: rgba(79, 157, 105, 0.08) !important;
+        background: color-mix(in srgb, var(--success) 8%, transparent) !important;
+    }
+    div[data-testid="stAlert"]:has([data-testid="stAlertContentWarning"]),
+    div[data-baseweb="notification"][kind="warning"] {
+        border-left-color: var(--warning) !important;
+        background: rgba(217, 164, 65, 0.08) !important;
+        background: color-mix(in srgb, var(--warning) 8%, transparent) !important;
+    }
+    div[data-testid="stAlert"]:has([data-testid="stAlertContentError"]),
+    div[data-baseweb="notification"][kind="negative"] {
+        border-left-color: var(--danger) !important;
+        background: rgba(192, 80, 77, 0.08) !important;
+        background: color-mix(in srgb, var(--danger) 8%, transparent) !important;
+    }
+    div[data-testid="stAlert"]:has([data-testid="stAlertContentInfo"]),
+    div[data-baseweb="notification"][kind="info"] {
+        border-left-color: var(--steel) !important;
+        background: rgba(74, 107, 138, 0.08) !important;
+        background: color-mix(in srgb, var(--steel) 8%, transparent) !important;
+    }
+    div[data-testid="stAlert"] p { color: var(--text) !important; }
+
+    details[data-testid="stExpander"],
+    div[data-testid="stExpander"] details,
+    div[data-testid="stExpander"] {
+        border: 1px solid var(--border) !important;
+        border-radius: 6px !important;
+        background: var(--card) !important;
+        overflow: hidden !important;
+    }
+    div[data-testid="stExpander"] summary {
+        color: var(--text) !important;
+        font-weight: 600 !important;
+        transition: background 0.2s ease !important;
+    }
+    div[data-testid="stExpander"] summary:hover { background: var(--card-hover) !important; }
+
+    div[data-testid="stMetric"] {
+        background: var(--card) !important;
+        border: 1px solid var(--border) !important;
+        border-left: 4px solid var(--steel) !important;
+        border-radius: 6px !important;
+        padding: 22px 24px !important;
+        box-shadow: var(--shadow) !important;
+        transition: border-color 0.2s ease, background 0.2s ease !important;
+    }
+    div[data-testid="stMetric"]:hover { background: var(--card-hover) !important; border-color: var(--steel) !important; }
+    div[data-testid="stMetricLabel"] > div,
+    div[data-testid="stMetricLabel"] p {
+        color: var(--muted) !important;
+        text-transform: uppercase !important;
+        letter-spacing: 1px !important;
+        font-size: 0.72rem !important;
+        font-weight: 600 !important;
+    }
+    div[data-testid="stMetricValue"] > div,
+    div[data-testid="stMetricValue"] {
+        color: var(--text) !important;
+        font-family: 'JetBrains Mono', 'Roboto Mono', monospace !important;
+        font-size: 38px !important;
+        font-weight: 700 !important;
+    }
+
+    /* ============================================================
+       КНОПКИ, ПОЛЯ, ФОРМЫ
+       ============================================================ */
+    div.stButton > button,
+    div.stDownloadButton > button,
+    div[data-testid="stFormSubmitButton"] > button,
+    button[data-testid="stBaseButton-secondary"] {
+        min-height: 44px !important;
+        padding: 0.5rem 1.1rem !important;
+        border-radius: 4px !important;
+        border: 1px solid var(--steel) !important;
+        background: transparent !important;
+        color: var(--text) !important;
+        font-family: 'Roboto Condensed', sans-serif !important;
+        font-size: 13px !important;
+        font-weight: 700 !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.6px !important;
+        box-shadow: none !important;
+        transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease !important;
+    }
+    div.stButton > button:hover,
+    div.stDownloadButton > button:hover,
+    div[data-testid="stFormSubmitButton"] > button:hover,
+    button[data-testid="stBaseButton-secondary"]:hover {
+        background: var(--card-hover) !important;
+        border-color: var(--accent) !important;
+        color: var(--text) !important;
+        transform: none !important;
+        box-shadow: none !important;
+    }
+    div.stButton > button[kind="primary"],
+    div.stDownloadButton > button[kind="primary"],
+    div[data-testid="stFormSubmitButton"] > button[kind="primary"],
+    button[data-testid="stBaseButton-primary"] {
+        background: var(--accent) !important;
+        border: 1px solid var(--accent) !important;
+        color: var(--button-text) !important;
+        box-shadow: none !important;
+    }
+    div.stButton > button[kind="primary"]:hover,
+    div.stDownloadButton > button[kind="primary"]:hover,
+    div[data-testid="stFormSubmitButton"] > button[kind="primary"]:hover,
+    button[data-testid="stBaseButton-primary"]:hover {
+        background: var(--accent-hover) !important;
+        border-color: var(--accent-hover) !important;
+        color: var(--button-text) !important;
+        transform: none !important;
+        box-shadow: none !important;
+    }
+
+    div[data-baseweb="input"],
+    div[data-baseweb="base-input"],
+    div[data-baseweb="textarea"],
+    div[data-baseweb="select"] > div,
+    div[data-testid="stNumberInputContainer"],
+    div[data-testid="stDateInput"] div[data-baseweb="input"] {
+        background: var(--field-bg) !important;
+        border: 1px solid var(--border) !important;
+        border-radius: 4px !important;
+        min-height: 44px !important;
+        box-shadow: none !important;
+        transition: border-color 0.2s ease !important;
+    }
+    div[data-baseweb="input"]:focus-within,
+    div[data-baseweb="base-input"]:focus-within,
+    div[data-baseweb="textarea"]:focus-within,
+    div[data-baseweb="select"]:focus-within > div,
+    div[data-testid="stNumberInputContainer"]:focus-within {
+        border-color: var(--accent) !important;
+        box-shadow: none !important;
+    }
+    div[data-baseweb="input"] input,
+    div[data-baseweb="base-input"] input,
+    div[data-baseweb="textarea"] textarea,
+    .stTextInput input,
+    .stTextArea textarea,
+    .stNumberInput input,
+    .stDateInput input {
+        background: transparent !important;
+        color: var(--field-text) !important;
+        -webkit-text-fill-color: var(--field-text) !important;
+    }
+    div[data-baseweb="select"] div,
+    div[data-baseweb="select"] span,
+    div[data-baseweb="select"] input {
+        color: var(--field-text) !important;
+    }
+    div[data-baseweb="select"] svg { fill: var(--field-text) !important; }
+    ::placeholder { color: var(--muted) !important; opacity: 1 !important; }
+    div[data-baseweb="tag"] {
+        background: rgba(74, 107, 138, 0.15) !important;
+        border: 1px solid var(--steel) !important;
+        border-radius: 3px !important;
+    }
+    div[data-baseweb="tag"] span { color: var(--field-text) !important; }
+    input, textarea, [role="checkbox"], [role="radio"],
+    div[data-testid="stToggle"] input { accent-color: var(--accent) !important; }
+
+    [data-testid="stWidgetLabel"] label p,
+    [data-testid="stWidgetLabel"] label,
+    .stTextInput label,
+    .stTextArea label,
+    .stSelectbox label,
+    .stNumberInput label,
+    .stMultiSelect label,
+    .stDateInput label {
+        color: var(--muted) !important;
+        font-size: 0.72rem !important;
+        font-weight: 600 !important;
+        letter-spacing: 0.5px !important;
+        text-transform: uppercase !important;
+    }
+
+    div[data-testid="stForm"] {
+        background: var(--card) !important;
+        border: 1px solid var(--border) !important;
+        border-radius: 6px !important;
+        padding: 24px !important;
+        box-shadow: var(--shadow) !important;
+    }
+
+    /* ============================================================
+       ФУТЕР И АДАПТИВНОСТЬ
+       ============================================================ */
+    .naryad-footer {
+        margin-top: 48px;
+        background: var(--bg-2);
+        border-top: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 30px 34px;
+        box-shadow: var(--shadow);
+    }
+    .naryad-footer-grid {
+        display: flex;
+        gap: 24px;
+        justify-content: space-between;
+        flex-wrap: wrap;
+    }
+    .naryad-footer-col {
+        flex: 1 1 200px;
+        min-width: 180px;
+        font-size: 0.85rem;
+        color: var(--muted) !important;
+    }
+    .naryad-footer-brand {
+        font-family: 'JetBrains Mono', 'Roboto Mono', monospace;
+        font-size: 1.15rem;
+        font-weight: 700;
+        color: var(--text) !important;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+    }
+    .naryad-footer-sub { font-size: 0.75rem; color: var(--muted) !important; margin-top: 4px; }
+    .naryad-footer-center { text-align: center; }
+    .naryad-footer-right { text-align: right; color: var(--text) !important; font-weight: 600; }
+    .naryad-footer-copy {
+        margin-top: 24px;
+        padding-top: 16px;
+        border-top: 1px solid var(--border);
+        font-size: 0.72rem;
+        color: var(--muted) !important;
+        text-align: center;
+    }
+
+    /* ---------- Прогресс, загрузка файлов, выпадающие списки ---------- */
+    div[data-testid="stProgress"] > div > div {
+        background: var(--card-hover) !important;
+        border-radius: 0 !important;
+    }
+    div[data-testid="stProgress"] > div > div > div {
+        background: var(--accent) !important;
+        border-radius: 0 !important;
+    }
+    section[data-testid="stFileUploaderDropzone"] {
+        background: var(--card) !important;
+        border: 1px dashed var(--steel) !important;
+        border-radius: 4px !important;
+    }
+    div[data-baseweb="popover"] div[role="listbox"],
+    div[data-baseweb="popover"] ul {
+        background: var(--card) !important;
+        border: 1px solid var(--border) !important;
+        border-radius: 4px !important;
+    }
+    div[data-baseweb="popover"] div[role="option"],
+    div[data-baseweb="popover"] li[role="option"] {
+        color: var(--text) !important;
+        background: transparent !important;
+    }
+    div[data-baseweb="popover"] div[role="option"]:hover,
+    div[data-baseweb="popover"] li[role="option"]:hover {
+        background: var(--card-hover) !important;
+    }
+
+    @media (max-width: 768px) {
+        .naryad-hero { padding: 22px 20px; }
+        .naryad-hero h2 { font-size: 22px !important; }
+        .naryad-hero-top { flex-direction: column; align-items: flex-start; }
+        .naryad-stat-value { font-size: 30px; }
+        .naryad-footer-center,
+        .naryad-footer-right { text-align: left; }
+        h1 { font-size: 1.5rem !important; }
+        h2 { font-size: 1.25rem !important; }
+        h3 { font-size: 1.05rem !important; }
+        div[data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; gap: 12px !important; }
+        div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"],
+        div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+            flex: 1 1 44% !important;
+            min-width: 44% !important;
+        }
+        .block-container { padding-left: 0.8rem !important; padding-right: 0.8rem !important; }
+    }
+
+    /* ============================================================
+       ЭКРАН ИСПОЛНИТЕЛЯ: карточка наряда и панель действий
+       ============================================================ */
+    .st-key-worker-orderbar {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 12px 16px 8px 16px;
+        margin-bottom: 24px;
+        box-shadow: var(--shadow);
+    }
+    .worker-counter {
+        font-family: 'JetBrains Mono', 'Roboto Mono', monospace;
+        font-size: 0.7rem;
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
+        color: var(--muted) !important;
+        text-align: right;
+        margin: 2px 0 0 0;
+    }
+
+    .worker-card-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+        flex-wrap: wrap;
+    }
+    .worker-card-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .worker-order-num {
+        font-family: 'JetBrains Mono', 'Roboto Mono', monospace;
+        font-size: 1.5rem;
+        font-weight: 700;
+        letter-spacing: 1px;
+        color: var(--text) !important;
+    }
+    .worker-deadline {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-family: 'JetBrains Mono', 'Roboto Mono', monospace;
+        font-size: 0.76rem;
+        color: var(--muted) !important;
+        white-space: nowrap;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 4px 10px;
+    }
+    .worker-deadline.is-soon { color: var(--warning) !important; border-color: var(--warning) !important; }
+    .worker-deadline.is-overdue { color: var(--danger) !important; border-color: var(--danger) !important; }
+
+    .worker-desc { margin-top: 18px; }
+    .worker-section-label,
+    .worker-fact-label {
+        font-family: 'Roboto Condensed', sans-serif;
+        font-size: 0.68rem;
+        font-weight: 600;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        color: var(--muted) !important;
+    }
+    .worker-desc-text {
+        margin-top: 4px;
+        font-size: 0.98rem;
+        line-height: 1.45;
+        color: var(--text) !important;
+    }
+    .worker-facts {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+        margin-top: 20px;
+    }
+    .worker-fact-value {
+        margin-top: 4px;
+        font-size: 0.95rem;
+        font-weight: 600;
+        color: var(--text) !important;
+        word-break: break-word;
+    }
+
+    /* --- Панель действий --- */
+    .st-key-actions { margin-top: 24px; }
+    .st-key-actions div[data-testid="stHorizontalBlock"] { gap: 12px !important; align-items: flex-end; }
+    .st-key-actions div.stButton > button,
+    .st-key-actions div[data-testid="stPopover"] > button,
+    .st-key-actions div[data-testid="stPopoverButton"] button {
+        min-height: 44px !important;
+        width: 100% !important;
+    }
+    .st-key-worker_pause button {
+        border: 1px solid var(--warning) !important;
+        color: var(--warning) !important;
+        background: transparent !important;
+        box-shadow: none !important;
+    }
+    .st-key-worker_pause button:hover {
+        background: rgba(217, 164, 65, 0.14) !important;
+        background: color-mix(in srgb, var(--warning) 14%, transparent) !important;
+        border-color: var(--warning) !important;
+        color: var(--warning) !important;
+        box-shadow: none !important;
+    }
+    .st-key-worker_reject button {
+        border: 1px solid var(--danger) !important;
+        color: var(--danger) !important;
+        background: transparent !important;
+        box-shadow: none !important;
+    }
+    .st-key-worker_reject button:hover {
+        background: rgba(192, 80, 77, 0.14) !important;
+        background: color-mix(in srgb, var(--danger) 14%, transparent) !important;
+        border-color: var(--danger) !important;
+        color: var(--danger) !important;
+        box-shadow: none !important;
+    }
+    .st-key-actions button:disabled,
+    .st-key-worker_pause button:disabled,
+    .st-key-worker_reject button:disabled {
+        opacity: 0.4 !important;
+        cursor: not-allowed !important;
+        box-shadow: none !important;
+    }
+    .st-key-actions button:disabled:hover { transform: none !important; }
+    .st-key-worker_reject div.stButton > button[kind="primary"] {
+        border-color: var(--danger) !important;
+        background: var(--danger) !important;
+        color: #ffffff !important;
+    }
+
+    /* --- Мобильная раскладка панели действий --- */
+    @media (max-width: 768px) {
+        .worker-facts { grid-template-columns: 1fr; }
+        .st-key-worker-orderbar { margin-bottom: 16px; }
+        .st-key-actions {
+            position: sticky;
+            bottom: 0;
+            z-index: 60;
+            background: var(--bg-2);
+            border-top: 1px solid var(--border);
+            border-radius: 0;
+            padding: 12px;
+            margin: 16px -24px -24px -24px;
+        }
+        .st-key-actions div[data-testid="stHorizontalBlock"] {
+            flex-direction: column !important;
+            flex-wrap: nowrap !important;
+            gap: 10px !important;
+        }
+        .st-key-actions div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"],
+        .st-key-actions div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+            flex: 1 1 auto !important;
+            min-width: 100% !important;
+            width: 100% !important;
+        }
+        .st-key-actions div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:last-child,
+        .st-key-actions div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:last-child {
+            display: none !important;
+        }
+        .st-key-actions div.stButton > button,
+        .st-key-actions div[data-testid="stPopover"] button {
+            min-height: 52px !important;
+            width: 100% !important;
+        }
+    }
+
+    /* ============================================================
+       ДИСПЕТЧЕРСКИЙ ПУЛЬТ (этапы 1–7): командная строка, KPI,
+       доска, список, таймлайн, степпер, деталь, анимации
+       ============================================================ */
+    /* --- Командная строка --- */
+    .cmdbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-left: 4px solid var(--accent);
+        border-radius: 6px;
+        padding: 12px 18px;
+        margin-bottom: 16px;
+        box-shadow: var(--shadow);
+        flex-wrap: wrap;
+    }
+    .cmd-title {
+        font-family: 'Roboto Condensed', sans-serif;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        font-size: 1.05rem;
+        color: var(--text) !important;
+    }
+    .cmd-role { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted) !important; }
+    .cmd-clock { text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: var(--text) !important; line-height: 1.4; }
+    .cmd-shift { font-size: 0.66rem; color: var(--muted) !important; text-transform: uppercase; letter-spacing: 1px; }
+
+    /* --- Полоса KPI --- */
+    .disp-kpi {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-left: 4px solid var(--steel);
+        border-radius: 6px;
+        padding: 14px 16px;
+        box-shadow: var(--shadow);
+        height: 100%;
+    }
+    .disp-kpi.alarm { border-left-color: var(--danger); }
+    .disp-kpi.warn { border-left-color: var(--warning); }
+    .disp-kpi.good { border-left-color: var(--success); }
+    .disp-kpi-label { font-family: 'Roboto Condensed', sans-serif; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted) !important; }
+    .disp-kpi-value { font-family: 'JetBrains Mono', monospace; font-size: 44px; font-weight: 700; line-height: 1.05; color: var(--text) !important; }
+    .disp-kpi-sub { font-size: 0.66rem; color: var(--muted) !important; }
+    .disp-kpi svg { display: block; margin-top: 6px; }
+    @keyframes kpi-pulse { 0%, 100% { border-color: var(--border); } 50% { border-color: var(--danger); } }
+    .disp-kpi.pulse { animation: kpi-pulse 2.5s ease-in-out infinite; }
+
+    /* --- Доска --- */
+    .board-head { border-top: 3px solid var(--steel); padding-top: 8px; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+    .board-head .bh-title { font-family: 'Roboto Condensed', sans-serif; text-transform: uppercase; letter-spacing: 1px; font-size: 0.76rem; color: var(--text) !important; font-weight: 700; }
+    .board-head .bh-count {
+        display: inline-block; min-width: 22px; text-align: center; padding: 1px 7px;
+        border-radius: 999px; background: var(--card-hover); color: var(--muted) !important;
+        font-family: 'JetBrains Mono', monospace; font-size: 0.7rem;
+    }
+    .board-head.st-new { border-top-color: var(--steel); }
+    .board-head.st-work { border-top-color: var(--accent); }
+    .board-head.st-paused { border-top-color: var(--warning); }
+    .board-head.st-overdue { border-top-color: var(--danger); }
+    .board-head.st-closed { border-top-color: var(--success); }
+
+    [class*="st-key-card_"] {
+        position: relative;
+        background: var(--card) !important;
+        border: 1px solid var(--border) !important;
+        border-left: 4px solid var(--steel) !important;
+        border-radius: 6px !important;
+        padding: 12px 14px !important;
+        margin-bottom: 10px !important;
+        box-shadow: none !important;
+        transition: border-color 0.2s ease, transform 0.2s ease, background 0.2s ease;
+    }
+    [class*="st-key-card_"]:hover { border-color: var(--steel) !important; transform: translateY(-2px); }
+    [class*="st-key-card_"]:has(.card-prio-red) { border-left-color: var(--danger) !important; }
+    [class*="st-key-card_"]:has(.card-prio-yellow) { border-left-color: var(--warning) !important; }
+    [class*="st-key-card_"]:has(.card-prio-blue) { border-left-color: var(--steel) !important; }
+    [class*="st-key-card_"]:has(.card-prio-gray) { border-left-color: var(--muted) !important; }
+    [class*="st-key-card_"]:has(.card-emergency) { border-left-color: transparent !important; }
+    [class*="st-key-card_"]:has(.card-emergency)::before {
+        content: '';
+        position: absolute;
+        left: -1px; top: -1px; bottom: -1px;
+        width: 4px;
+        border-radius: 6px 0 0 6px;
+        background: repeating-linear-gradient(45deg, var(--accent) 0 5px, #14171a 5px 10px);
+    }
+    .card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+    .card-num { font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 0.86rem; color: var(--text) !important; }
+    .card-eq {
+        font-size: 0.82rem; line-height: 1.25; color: var(--text) !important;
+        display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    }
+    .card-unit { font-size: 0.7rem; color: var(--muted) !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .deadline-wrap { margin-top: 8px; }
+    .deadline-bar { height: 6px; border-radius: 3px; background: var(--card-hover); overflow: hidden; }
+    .deadline-bar > span { display: block; height: 100%; border-radius: 3px; }
+    .deadline-bar .ok { background: var(--success); }
+    .deadline-bar .warn { background: var(--warning); }
+    .deadline-bar .bad { background: var(--danger); }
+    .deadline-text { font-size: 0.66rem; color: var(--muted) !important; margin-top: 3px; text-align: right; font-family: 'JetBrains Mono', monospace; }
+    .deadline-text.bad { color: var(--danger) !important; }
+    .card-bottom { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; }
+    .avatar {
+        width: 28px; height: 28px; border-radius: 50%; background: var(--steel); color: #ffffff;
+        display: inline-flex; align-items: center; justify-content: center;
+        font-size: 0.66rem; font-weight: 700; font-family: 'Roboto Condensed', sans-serif; flex: 0 0 auto;
+    }
+    .pulse-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); display: inline-block; animation: dot-pulse 1.8s ease-in-out infinite; }
+    @keyframes dot-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+    /* --- Пустое состояние --- */
+    .empty-state { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 22px 8px; color: var(--muted) !important; text-align: center; }
+    .empty-state .icon { font-size: 1.4rem; opacity: 0.6; }
+
+    /* --- Список --- */
+    .list-head {
+        position: sticky; top: 0; z-index: 5;
+        background: var(--card-hover); border: 1px solid var(--border); border-radius: 6px 6px 0 0;
+        padding: 8px 12px; font-family: 'Roboto Condensed', sans-serif; text-transform: uppercase;
+        letter-spacing: 1px; font-size: 0.66rem; color: var(--muted) !important;
+    }
+    [class*="st-key-lrow_"] {
+        border: 1px solid var(--border); border-top: none; background: var(--card);
+        min-height: 56px; padding: 4px 12px; transition: background 0.2s ease, border-color 0.2s ease;
+    }
+    [class*="st-key-lrow_"]:nth-of-type(even) { background: var(--card-hover); }
+    [class*="st-key-lrow_"]:hover { background: var(--card-hover); border-color: var(--steel); }
+    [class*="st-key-lrow_"] [data-testid="stVerticalBlock"] { gap: 0 !important; }
+    .lrow-num { font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 0.8rem; color: var(--text) !important; }
+    .lrow-eq { font-size: 0.82rem; color: var(--text) !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .lrow-mut { font-size: 0.72rem; color: var(--muted) !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .lrow-bar { width: 160px; }
+    .lrow-stripe { width: 4px; height: 30px; border-radius: 2px; background: var(--steel); }
+    .lrow-stripe.red { background: var(--danger); }
+    .lrow-stripe.yellow { background: var(--warning); }
+    .lrow-stripe.blue { background: var(--steel); }
+    .lrow-stripe.gray { background: var(--muted); }
+
+    /* --- Таймлайн --- */
+    .timeline-wrap { border: 1px solid var(--border); border-radius: 6px; background: var(--card); padding: 10px; box-shadow: var(--shadow); }
+
+    /* --- Степпер статусов --- */
+    .stepper { display: flex; align-items: flex-start; gap: 0; margin: 12px 0 18px 0; }
+    .step { flex: 1; position: relative; text-align: center; }
+    .step .dot {
+        width: 16px; height: 16px; border-radius: 50%; margin: 0 auto;
+        background: var(--card-hover); border: 2px solid var(--border); position: relative; z-index: 2;
+    }
+    .step .lbl { font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted) !important; margin-top: 6px; }
+    .step .tm { font-family: 'JetBrains Mono', monospace; font-size: 0.62rem; color: var(--muted) !important; }
+    .step::before { content: ''; position: absolute; top: 7px; left: 0; right: 50%; height: 2px; background: var(--border); }
+    .step::after { content: ''; position: absolute; top: 7px; left: 50%; right: 0; height: 2px; background: var(--border); }
+    .step:first-child::before, .step:last-child::after { display: none; }
+    .step.done .dot { background: var(--success); border-color: var(--success); }
+    .step.done::before, .step.done::after { background: var(--success); }
+    .step.current .dot { background: var(--accent); border-color: var(--accent); }
+    .step.current::before { background: var(--success); }
+    .step.current .lbl { color: var(--text) !important; }
+
+    /* --- Факты детали --- */
+    .disp-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 8px; }
+    .disp-fact-label { font-family: 'Roboto Condensed', sans-serif; font-size: 0.66rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted) !important; }
+    .disp-fact-value { margin-top: 4px; font-size: 0.92rem; font-weight: 600; color: var(--text) !important; word-break: break-word; }
+
+    /* --- Мобильный «Мой наряд» --- */
+    .myorder-num { font-family: 'JetBrains Mono', monospace; font-size: 1.4rem; font-weight: 700; color: var(--text) !important; }
+    .myorder-count { font-family: 'JetBrains Mono', monospace; font-size: 48px; font-weight: 700; line-height: 1.05; color: var(--accent) !important; }
+    .myorder-count.bad { color: var(--danger) !important; }
+    .myorder-count.ok { color: var(--success) !important; }
+    .mini-card {
+        min-width: 180px; max-width: 180px; background: var(--card); border: 1px solid var(--border);
+        border-left: 4px solid var(--steel); border-radius: 6px; padding: 10px 12px; margin-right: 10px;
+    }
+    .mini-card .mini-num { font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; font-weight: 700; color: var(--text) !important; }
+    .mini-card .mini-eq { font-size: 0.74rem; color: var(--muted) !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    /* --- Появление карточек и пульс (этап 7) --- */
+    @keyframes disp-fade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    .disp-anim { animation: disp-fade 0.3s ease both; }
+    .disp-anim.d1 { animation-delay: 0.04s; }
+    .disp-anim.d2 { animation-delay: 0.08s; }
+    .disp-anim.d3 { animation-delay: 0.12s; }
+    .disp-anim.d4 { animation-delay: 0.16s; }
+    .disp-anim.d5 { animation-delay: 0.20s; }
+    .disp-anim.d6 { animation-delay: 0.24s; }
+    @media (prefers-reduced-motion: reduce) {
+        .disp-anim, .pulse-dot, .disp-kpi.pulse { animation: none !important; }
+    }
+
+    @media (max-width: 768px) {
+        .disp-facts { grid-template-columns: 1fr; }
+        .disp-kpi-value { font-size: 34px; }
+        .cmd-clock { text-align: left; }
+        .myorder-count { font-size: 40px; }
+    }
+
+    /* --- Контейнер командной строки --- */
+    [class*="st-key-cmdbar"] {
+        background: var(--card) !important;
+        border: 1px solid var(--border) !important;
+        border-left: 4px solid var(--accent) !important;
+        border-radius: 6px !important;
+        padding: 8px 16px !important;
+        margin-bottom: 16px !important;
+        box-shadow: var(--shadow) !important;
+    }
+    [class*="st-key-cmdbar"] [data-testid="stHorizontalBlock"] { align-items: center !important; }
+
+    /* --- Маркеры приоритета в строках списка --- */
+    [class*="st-key-lrow_"]:has(.lrow-marker.red) { border-left: 4px solid var(--danger) !important; }
+    [class*="st-key-lrow_"]:has(.lrow-marker.yellow) { border-left: 4px solid var(--warning) !important; }
+    [class*="st-key-lrow_"]:has(.lrow-marker.blue) { border-left: 4px solid var(--steel) !important; }
+    [class*="st-key-lrow_"]:has(.lrow-marker.gray) { border-left: 4px solid var(--muted) !important; }
+
+    /* --- Иконки-действия внутри карточек и строк --- */
+    [class*="st-key-card_"] div.stButton > button,
+    [class*="st-key-lrow_"] div.stButton > button {
+        min-height: 36px !important;
+        height: 36px !important;
+        width: 36px !important;
+        padding: 0 !important;
+        border-radius: 4px !important;
+    }
+    [class*="st-key-card_"] button:disabled,
+    [class*="st-key-lrow_"] button:disabled { opacity: 0.35 !important; }
+
+    /* --- Плавное появление карточек доски --- */
+    [class*="st-key-card_"] { animation: disp-fade 0.3s ease both; }
+    [class*="st-key-card_"]:nth-of-type(2) { animation-delay: 0.04s; }
+    [class*="st-key-card_"]:nth-of-type(3) { animation-delay: 0.08s; }
+    [class*="st-key-card_"]:nth-of-type(4) { animation-delay: 0.12s; }
+    [class*="st-key-card_"]:nth-of-type(5) { animation-delay: 0.16s; }
+    [class*="st-key-card_"]:nth-of-type(6) { animation-delay: 0.20s; }
+    [class*="st-key-card_"]:nth-of-type(n+7) { animation-delay: 0.24s; }
+
+    /* --- Обёртка таймлайна --- */
+    [class*="st-key-timeline_box"] {
+        background: var(--card) !important;
+        border: 1px solid var(--border) !important;
+        border-radius: 6px !important;
+        padding: 8px !important;
+        box-shadow: var(--shadow) !important;
     }
 </style>
 """
@@ -1694,366 +2571,89 @@ _PRIORITY_BADGE_KIND: Dict[str, str] = {
 }
 
 
-def inject_custom_css() -> None:
-    """Подключить промышленную CSS-стилизацию интерфейса."""
+#: Палитры дизайн-системы: "dark" — «Графит», "light" — «Бетон».
+_THEME_TOKENS: Dict[str, Dict[str, str]] = {
+    "dark": {
+        "--bg": "#14171a",
+        "--bg-2": "#101316",
+        "--card": "#1c2125",
+        "--card-hover": "#232a30",
+        "--border": "rgba(255,255,255,0.07)",
+        "--text": "#e4e7ea",
+        "--muted": "#8c969f",
+        "--accent": "#d9822b",
+        "--accent-hover": "#e8924a",
+        "--steel": "#4a6b8a",
+        "--success": "#4f9d69",
+        "--warning": "#d9a441",
+        "--danger": "#c0504d",
+        "--field-bg": "#101316",
+        "--field-text": "#e4e7ea",
+        "--button-text": "#14171a",
+        "--grid-line": "rgba(255,255,255,0.035)",
+        "--vignette": "rgba(0,0,0,0.25)",
+        "--zebra": "rgba(255,255,255,0.03)",
+        "--shadow": "0 2px 8px rgba(0,0,0,0.25)",
+        "--topo-stroke": "#ffffff",
+    },
+    "light": {
+        "--bg": "#e9ecee",
+        "--bg-2": "#dde2e5",
+        "--card": "#ffffff",
+        "--card-hover": "#f4f6f7",
+        "--border": "rgba(20,30,40,0.12)",
+        "--text": "#1f2933",
+        "--muted": "#5f6b76",
+        "--accent": "#c46a1a",
+        "--accent-hover": "#d97a26",
+        "--steel": "#3d5a78",
+        "--success": "#3f8a59",
+        "--warning": "#b98a1f",
+        "--danger": "#b13f3b",
+        "--field-bg": "#ffffff",
+        "--field-text": "#1f2933",
+        "--button-text": "#ffffff",
+        "--grid-line": "rgba(20,30,40,0.05)",
+        "--vignette": "rgba(20,30,40,0.10)",
+        "--zebra": "rgba(20,30,40,0.03)",
+        "--shadow": "0 2px 8px rgba(0,0,0,0.10)",
+        "--topo-stroke": "#14181e",
+    },
+}
+
+#: Замкнутые кривые «горизонталей карьера» для фонового SVG.
+_TOPO_PATHS: Tuple[str, ...] = (
+    "M60,300 C120,180 260,120 400,150 C560,185 720,140 740,300 C760,470 600,540 420,520 C240,500 100,460 60,300 Z",
+    "M180,310 C230,220 340,180 450,205 C570,232 660,240 660,330 C660,440 520,470 400,455 C280,440 140,420 180,310 Z",
+    "M300,320 C340,265 420,245 500,265 C580,285 600,320 570,360 C540,400 440,410 370,390 C300,370 270,360 300,320 Z",
+    "M395,330 C425,305 480,300 512,320 C542,340 522,372 480,374 C438,376 375,358 395,330 Z",
+)
+
+
+def _topo_background(stroke: str) -> str:
+    """Собрать data-URI с топографическими линиями для фона."""
+    paths = "".join(f'<path d="{d}"/>' for d in _TOPO_PATHS)
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" '
+        f'viewBox="0 0 800 600" fill="none" stroke="{stroke}" '
+        f'stroke-opacity="0.05" stroke-width="1">{paths}</svg>'
+    )
+    return f'url("data:image/svg+xml,{quote(svg, safe="")}")'
+
+
+def _theme_root_css(theme: str) -> str:
+    """Собрать блок ``:root`` с переменными выбранной темы."""
+    tokens = _THEME_TOKENS.get(theme, _THEME_TOKENS["dark"])
+    lines = "\n".join(f"        {name}: {value};" for name, value in tokens.items())
+    topo = _topo_background(tokens["--topo-stroke"])
+    return f":root {{\n{lines}\n        --topo: {topo};\n    }}"
+
+
+def inject_design(theme: str = "dark") -> None:
+    """Подключить дизайн-систему в выбранной теме («Графит» / «Бетон»)."""
     try:
-        st.markdown(_APP_CSS, unsafe_allow_html=True)
-    except Exception:  # noqa: BLE001 — стили не должны ронять приложение
-        st.session_state["css_error"] = True
-
-
-#: Приоритетный CSS с селекторами ``!important`` — гарантированно перебивает
-#: стандартные стили Streamlit. Внедряется сразу после ``st.set_page_config``.
-_PRIORITY_CSS = """
-<style>
-/* Основной фон приложения и сайдбара */
-.stApp {
-    background-color: #0d1117 !important;
-    color: #e6edf3 !important;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
-}
-[data-testid="stSidebar"] {
-    background-color: #161b22 !important;
-    border-right: 1px solid #30363d !important;
-}
-
-/* Стилизация верхнего Hero-баннера */
-.hero-banner {
-    background: linear-gradient(135deg, #1e2638 0%, #0d1117 100%) !important;
-    border: 1px solid #30363d !important;
-    border-left: 6px solid #2563eb !important;
-    padding: 24px 32px !important;
-    border-radius: 8px !important;
-    margin-bottom: 24px !important;
-}
-.hero-title {
-    font-size: 26px !important;
-    font-weight: 800 !important;
-    letter-spacing: 1.5px !important;
-    color: #ffffff !important;
-    margin: 0 !important;
-    text-transform: uppercase !important;
-}
-.hero-subtitle {
-    font-size: 14px !important;
-    color: #8b949e !important;
-    margin-top: 6px !important;
-}
-
-/* Карточки метрик (KPI) */
-div[data-testid="stMetric"] {
-    background-color: #161b22 !important;
-    border: 1px solid #30363d !important;
-    border-radius: 8px !important;
-    padding: 16px 20px !important;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25) !important;
-}
-div[data-testid="stMetricValue"] > div {
-    font-size: 32px !important;
-    font-weight: 700 !important;
-    color: #f0f6fc !important;
-}
-div[data-testid="stMetricLabel"] > div {
-    font-size: 13px !important;
-    text-transform: uppercase !important;
-    letter-spacing: 0.5px !important;
-    color: #8b949e !important;
-}
-
-/* Кнопки Primary */
-div.stButton > button[kind="primary"] {
-    background: #1f6feb !important;
-    color: #ffffff !important;
-    border: none !important;
-    border-radius: 6px !important;
-    padding: 10px 24px !important;
-    font-weight: 600 !important;
-    font-size: 15px !important;
-    box-shadow: 0 2px 6px rgba(31, 111, 235, 0.4) !important;
-    transition: all 0.2s ease !important;
-}
-div.stButton > button[kind="primary"]:hover {
-    background: #388bfd !important;
-    box-shadow: 0 4px 12px rgba(56, 139, 253, 0.6) !important;
-    transform: translateY(-1px) !important;
-}
-
-/* Вкладки (Tabs) */
-button[data-baseweb="tab"] {
-    font-weight: 600 !important;
-    color: #8b949e !important;
-}
-button[aria-selected="true"] {
-    color: #58a6ff !important;
-    border-bottom-color: #1f6feb !important;
-}
-
-/* Формы и поля ввода */
-div[data-baseweb="input"], div[data-baseweb="select"] {
-    background-color: #0d1117 !important;
-    border-color: #30363d !important;
-    border-radius: 6px !important;
-}
-
-/* Компактный статус-бар (1 строка) вместо крупных плашек */
-.status-bar {
-    display: inline-block !important;
-    font-size: 12.5px !important;
-    font-weight: 600 !important;
-    letter-spacing: 0.2px !important;
-    padding: 4px 12px !important;
-    border-radius: 999px !important;
-    margin: 0 0 14px 0 !important;
-}
-.status-online {
-    color: #3fb950 !important;
-    background: rgba(46, 160, 67, 0.12) !important;
-    border: 1px solid rgba(46, 160, 67, 0.35) !important;
-}
-.status-offline {
-    color: #e3b341 !important;
-    background: rgba(227, 179, 65, 0.12) !important;
-    border: 1px solid rgba(227, 179, 65, 0.35) !important;
-}
-</style>
-"""
-
-
-def inject_priority_css() -> None:
-    """Внедрить приоритетный CSS (``!important``) сразу после set_page_config."""
-    try:
-        st.markdown(_PRIORITY_CSS, unsafe_allow_html=True)
-    except Exception:  # noqa: BLE001 — стили не должны ронять приложение
-        st.session_state["css_error"] = True
-
-
-#: Финальный слой оформления «Industrial Control Panel»: фон, кнопки, поля,
-#: вкладки, уведомления, таблицы и прокрутка. Внедряется последним, поэтому
-#: гарантированно перекрывает дефолтные стили Streamlit.
-_THEME_CSS = """
-<style>
-    /* ===================== ФОН И КАРКАС ===================== */
-    .stApp {
-        background-color: #0b0f17 !important;
-        background-image:
-            radial-gradient(1100px 520px at 100% -8%, rgba(37, 99, 235, 0.20), transparent 60%),
-            radial-gradient(900px 480px at -8% 108%, rgba(34, 211, 238, 0.10), transparent 62%),
-            linear-gradient(rgba(148, 163, 184, 0.035) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(148, 163, 184, 0.035) 1px, transparent 1px),
-            linear-gradient(180deg, #0b0f17 0%, #0d1117 55%, #0b0f17 100%) !important;
-        background-size: auto, auto, 46px 46px, 46px 46px, auto !important;
-        background-attachment: fixed !important;
-    }
-    .block-container {
-        padding-top: 1.6rem !important;
-        padding-bottom: 3rem !important;
-        max-width: 1500px !important;
-    }
-
-    /* ===================== САЙДБАР-МЕНЮ ===================== */
-    section[data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #10161f 0%, #0a0e15 100%) !important;
-        border-right: 1px solid rgba(148, 163, 184, 0.12) !important;
-    }
-    section[data-testid="stSidebar"] div[role="radiogroup"] > label {
-        display: flex !important;
-        align-items: center !important;
-        gap: 10px !important;
-        padding: 10px 14px !important;
-        margin: 4px 0 !important;
-        border-radius: 10px !important;
-        border: 1px solid rgba(148, 163, 184, 0.08) !important;
-        background: rgba(148, 163, 184, 0.035) !important;
-        transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease !important;
-        cursor: pointer !important;
-    }
-    section[data-testid="stSidebar"] div[role="radiogroup"] > label:hover {
-        background: rgba(37, 99, 235, 0.12) !important;
-        border-color: rgba(37, 99, 235, 0.35) !important;
-    }
-    section[data-testid="stSidebar"] div[role="radiogroup"] > label:has(input:checked) {
-        background: linear-gradient(90deg, rgba(37, 99, 235, 0.28), rgba(37, 99, 235, 0.05)) !important;
-        border-color: rgba(59, 130, 246, 0.65) !important;
-        box-shadow: inset 3px 0 0 0 #3b82f6, 0 4px 14px rgba(37, 99, 235, 0.18) !important;
-    }
-    section[data-testid="stSidebar"] div[role="radiogroup"] > label p {
-        font-weight: 600 !important;
-        font-size: 0.9rem !important;
-        color: #cbd5e1 !important;
-    }
-
-    /* ===================== КНОПКИ ===================== */
-    div.stButton > button,
-    div.stDownloadButton > button,
-    div.stFormSubmitButton > button {
-        border-radius: 10px !important;
-        border: 1px solid rgba(148, 163, 184, 0.22) !important;
-        background: linear-gradient(180deg, #1b2330 0%, #141a24 100%) !important;
-        color: #e6edf3 !important;
-        font-weight: 600 !important;
-        letter-spacing: 0.2px !important;
-        padding: 10px 18px !important;
-        transition: transform 0.15s ease, box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease !important;
-    }
-    div.stButton > button:hover,
-    div.stDownloadButton > button:hover,
-    div.stFormSubmitButton > button:hover {
-        border-color: rgba(59, 130, 246, 0.65) !important;
-        box-shadow: 0 6px 18px rgba(37, 99, 235, 0.25) !important;
-        transform: translateY(-1px) !important;
-        color: #ffffff !important;
-    }
-    div.stButton > button[kind="primary"],
-    div.stDownloadButton > button[kind="primary"],
-    div.stFormSubmitButton > button[kind="primary"] {
-        background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important;
-        border: 1px solid rgba(59, 130, 246, 0.5) !important;
-        box-shadow: 0 8px 22px rgba(37, 99, 235, 0.35) !important;
-    }
-    div.stButton > button[kind="primary"]:hover,
-    div.stDownloadButton > button[kind="primary"]:hover,
-    div.stFormSubmitButton > button[kind="primary"]:hover {
-        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%) !important;
-        box-shadow: 0 12px 30px rgba(59, 130, 246, 0.5) !important;
-    }
-    div.stButton > button:active,
-    div.stDownloadButton > button:active {
-        transform: translateY(0) scale(0.99) !important;
-    }
-
-    /* ===================== ПОЛЯ ВВОДА ===================== */
-    div[data-baseweb="input"],
-    div[data-baseweb="select"],
-    div[data-baseweb="textarea"],
-    div[data-testid="stNumberInputContainer"] {
-        background-color: #10161f !important;
-        border: 1px solid rgba(148, 163, 184, 0.18) !important;
-        border-radius: 10px !important;
-        transition: border-color 0.18s ease, box-shadow 0.18s ease !important;
-    }
-    div[data-baseweb="input"]:focus-within,
-    div[data-baseweb="select"]:focus-within,
-    div[data-baseweb="textarea"]:focus-within,
-    div[data-testid="stNumberInputContainer"]:focus-within {
-        border-color: #3b82f6 !important;
-        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.18) !important;
-    }
-    div[data-baseweb="input"] input,
-    div[data-baseweb="textarea"] textarea,
-    .stTextInput input,
-    .stTextArea textarea {
-        color: #e6edf3 !important;
-        background-color: transparent !important;
-    }
-    div[data-baseweb="tag"] {
-        background: rgba(37, 99, 235, 0.22) !important;
-        border: 1px solid rgba(59, 130, 246, 0.45) !important;
-        border-radius: 8px !important;
-        color: #bfdbfe !important;
-    }
-    input, textarea, [role="checkbox"], [role="radio"],
-    div[data-testid="stToggle"] input {
-        accent-color: #3b82f6 !important;
-    }
-
-    /* ===================== ВКЛАДКИ ===================== */
-    div[data-baseweb="tab-list"] {
-        gap: 6px !important;
-        border-bottom: 1px solid rgba(148, 163, 184, 0.14) !important;
-    }
-    button[data-baseweb="tab"] {
-        border-radius: 10px 10px 0 0 !important;
-        padding: 10px 18px !important;
-        font-weight: 600 !important;
-        color: #94a3b8 !important;
-        transition: color 0.2s ease, background 0.2s ease !important;
-    }
-    button[data-baseweb="tab"]:hover {
-        color: #e2e8f0 !important;
-        background: rgba(148, 163, 184, 0.06) !important;
-    }
-    button[aria-selected="true"] {
-        color: #93c5fd !important;
-        background: linear-gradient(180deg, rgba(37, 99, 235, 0.20), transparent) !important;
-    }
-    div[data-baseweb="tab-highlight"] {
-        background-color: #3b82f6 !important;
-        height: 3px !important;
-        border-radius: 3px !important;
-    }
-
-    /* ===================== УВЕДОМЛЕНИЯ ===================== */
-    div[data-testid="stAlert"],
-    div[data-testid="stAlertContainer"] {
-        border-radius: 10px !important;
-        border: 1px solid rgba(148, 163, 184, 0.18) !important;
-        border-left-width: 4px !important;
-        background: rgba(20, 26, 36, 0.92) !important;
-    }
-
-    /* ============ РАЗВОРОТЫ, ТАБЛИЦЫ, ПРОГРЕСС ============ */
-    details[data-testid="stExpander"],
-    div[data-testid="stExpander"] {
-        border: 1px solid rgba(148, 163, 184, 0.15) !important;
-        border-radius: 10px !important;
-        background: rgba(16, 22, 31, 0.72) !important;
-        overflow: hidden !important;
-    }
-    div[data-testid="stExpander"] summary {
-        font-weight: 600 !important;
-        color: #cbd5e1 !important;
-    }
-    div[data-testid="stDataFrame"],
-    div[data-testid="stTable"] {
-        border-radius: 10px !important;
-        border: 1px solid rgba(148, 163, 184, 0.15) !important;
-        overflow: hidden !important;
-    }
-    div[data-testid="stProgress"] > div > div {
-        background-color: rgba(148, 163, 184, 0.16) !important;
-        border-radius: 999px !important;
-    }
-    div[data-testid="stProgress"] > div > div > div {
-        background: linear-gradient(90deg, #2563eb 0%, #22d3ee 100%) !important;
-        border-radius: 999px !important;
-    }
-
-    /* ======== ЗАГРУЗКА ФАЙЛОВ И ВЫПАДАЮЩИЕ СПИСКИ ======== */
-    section[data-testid="stFileUploaderDropzone"] {
-        border: 1px dashed rgba(59, 130, 246, 0.45) !important;
-        background: rgba(16, 22, 31, 0.55) !important;
-        border-radius: 12px !important;
-    }
-    div[data-baseweb="popover"] div[role="listbox"] {
-        background: #10161f !important;
-        border: 1px solid rgba(148, 163, 184, 0.2) !important;
-        border-radius: 10px !important;
-    }
-
-    /* ===================== ТИПОГРАФИКА И МЕЛОЧИ ===================== */
-    h1, h2, h3 { letter-spacing: -0.02em !important; }
-    h1 { font-weight: 800 !important; }
-    a { color: #60a5fa !important; }
-    hr, div[data-testid="stDivider"] hr { border-color: rgba(148, 163, 184, 0.12) !important; }
-    div[data-testid="stSpinner"] svg { color: #60a5fa !important; }
-
-    ::-webkit-scrollbar { width: 10px; height: 10px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb {
-        background: #2a3441;
-        border-radius: 999px;
-        border: 2px solid transparent;
-        background-clip: padding-box;
-    }
-    ::-webkit-scrollbar-thumb:hover { background: #3b4757; background-clip: padding-box; }
-</style>
-"""
-
-
-def inject_theme_css() -> None:
-    """Внедрить финальный слой оформления интерфейса (Industrial Control Panel)."""
-    try:
-        st.markdown(_THEME_CSS, unsafe_allow_html=True)
+        css = _DESIGN_CSS.replace("__ROOT__", _theme_root_css(theme))
+        st.markdown(css, unsafe_allow_html=True)
     except Exception:  # noqa: BLE001 — стили не должны ронять приложение
         st.session_state["css_error"] = True
 
@@ -2083,27 +2683,27 @@ def metric_card(
     caption: str = "",
     accent: str = "#f8fafc",
     caption_color: Optional[str] = None,
+    variant: Optional[str] = None,
 ) -> str:
-    """Собрать HTML-блок метрики (тёмный матовый фон + тонкая рамка).
+    """Собрать HTML-блок метрики в виде карточки дизайн-системы.
 
     Единый вид для всех экранов проекта — заменяет стандартные серые
-    коробки ``st.metric``.
+    коробки ``st.metric``. ``variant`` задаёт цветную верхнюю границу
+    (``total`` / ``inwork`` / ``overdue`` / ``closed``).
     """
     if caption_color is None:
         caption_color = accent if caption else "#64748b"
     caption_html = (
-        f'<div style="font-size: 11px; color: {caption_color}; '
-        f'margin-top: 2px;">{caption}</div>'
+        f'<div class="naryad-stat-caption" style="color: {caption_color};">'
+        f"{caption}</div>"
         if caption
         else ""
     )
+    variant_class = f" naryad-stat-{variant}" if variant else ""
     return (
-        '<div style="background: #141a24; border: 1px solid #232d3d; '
-        'border-radius: 8px; padding: 16px 20px;">'
-        f'<div style="font-size: 11px; color: #94a3b8; text-transform: uppercase; '
-        f'font-weight: 600;">{label}</div>'
-        f'<div style="font-size: 32px; font-weight: 800; color: {accent}; '
-        f'margin-top: 4px;">{value}</div>'
+        f'<div class="naryad-stat{variant_class}">'
+        f'<div class="naryad-stat-label">{label}</div>'
+        f'<div class="naryad-stat-value" style="color: {accent};">{value}</div>'
         f"{caption_html}"
         "</div>"
     )
@@ -2115,36 +2715,32 @@ def render_metric_card(
     caption: str = "",
     accent: str = "#f8fafc",
     caption_color: Optional[str] = None,
+    variant: Optional[str] = None,
 ) -> None:
     """Отрисовать HTML-блок метрики (см. :func:`metric_card`)."""
     st.markdown(
-        metric_card(label, value, caption, accent, caption_color),
+        metric_card(label, value, caption, accent, caption_color, variant),
         unsafe_allow_html=True,
     )
 
 
-def render_hero(lang: str, role_key: str) -> None:
-    """Ролевой HTML hero-баннер: бренд ТОиР, статус связи и заголовок пульта.
+def render_hero(lang: str, role_key: str, is_offline: bool = False) -> None:
+    """Hero-баннер приложения: eyebrow, крупный заголовок, подзаголовок и статус связи.
 
-    Заголовок и подпись подбираются по активной роли и локализуются через
-    словарь ``LANG`` (RU / KZ).
+    Тексты берутся из словаря ``LANG`` (RU / KZ) — ключи ``hero_eyebrow``,
+    ``hero_title`` и ``hero_subtitle``. Статус связи отражает ``is_offline``.
     """
-    banners: Dict[str, Tuple[str, str]] = {
-        "master": ("banner_master_title", "banner_master_sub"),
-        "worker": ("banner_worker_title", "banner_worker_sub"),
-        "manager": ("banner_manager_title", "banner_manager_sub"),
-        "admin": ("banner_admin_title", "banner_admin_sub"),
-    }
-    title_key, sub_key = banners.get(role_key, banners["master"])
+    status_class = "naryad-status-offline" if is_offline else "naryad-status-online"
+    status_text = "Offline" if is_offline else "Online"
     st.markdown(
         f"""
-<div style="background: linear-gradient(135deg, #161e2e 0%, #0d121c 100%); border: 1px solid #233044; border-left: 6px solid #2563eb; border-radius: 8px; padding: 24px; margin-bottom: 20px;">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-        <span style="font-size: 11px; font-weight: 700; color: #60a5fa; letter-spacing: 1.5px; text-transform: uppercase;">{t(lang, "banner_eyebrow")}</span>
-        <span style="font-size: 12px; background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); padding: 3px 10px; border-radius: 12px;">{t(lang, "banner_online")}</span>
+<div class="naryad-hero">
+    <div class="naryad-hero-top">
+        <span class="naryad-hero-eyebrow">{t(lang, "hero_eyebrow")}</span>
+        <span class="naryad-status-pill {status_class}"><span class="dot"></span>{status_text}</span>
     </div>
-    <h1 style="color: #ffffff; font-size: 24px; font-weight: 800; margin: 0; letter-spacing: 0.5px;">{t(lang, title_key)}</h1>
-    <div style="color: #94a3b8; font-size: 13px; margin-top: 4px;">{t(lang, sub_key)}</div>
+    <h2>{t(lang, "hero_title")}</h2>
+    <p>{t(lang, "hero_subtitle")}</p>
 </div>
 """,
         unsafe_allow_html=True,
@@ -2166,6 +2762,13 @@ def render_sidebar_brand() -> None:
 def render_sidebar() -> Tuple[str, str, bool]:
     """Собрать сайдбар. Возвращает ``(lang, role_key, is_offline)``."""
     render_sidebar_brand()
+
+    # Переключатель темы: значение хранится в st.session_state["theme_light"].
+    st.sidebar.toggle(
+        "🌗 Светлая / Тёмная",
+        key="theme_light",
+        help="Переключение между темами «Графит» (тёмная) и «Бетон» (светлая).",
+    )
 
     lang = st.sidebar.selectbox(
         "Тіл / Язык",
@@ -2224,7 +2827,7 @@ def render_db_diagnostics(lang: str) -> None:
 
 def render_header(lang: str, role_key: str, is_offline: bool) -> None:
     """Глобальная шапка: ролевой hero-баннер и компактный статус-бар."""
-    render_hero(lang, role_key)
+    render_hero(lang, role_key, is_offline)
     # Плашка «ОНЛАЙН» заменена индикатором связи внутри hero-баннера.
     # Оставляем только предупреждение офлайн-режима (если он включён).
     if is_offline:
@@ -2263,74 +2866,639 @@ def load_live_orders(limit: int = 300) -> pd.DataFrame:
     return db_query_df(query, (int(limit),))
 
 
+# ==================================================================
+# 10b. ДИСПЕТЧЕРСКИЙ ПУЛЬТ (каркас, доска, список, таймлайн, деталь)
+# ==================================================================
+#: Дополнительные подписи интерфейса (LANG не меняем).
+_UI_TEXT: Dict[str, Dict[str, str]] = {
+    "RU": {
+        "all": "Все", "board": "Доска", "list": "Список", "timeline": "Таймлайн",
+        "view": "Вид", "search_ph": "Поиск: номер, оборудование, цех…",
+        "shift": "Смена", "online": "Online", "offline": "Offline",
+        "no_orders": "Нет нарядов", "show_all": "Показать все", "show_less": "Свернуть",
+        "open": "Открыть", "accept": "Принять в работу", "pause": "Приостановить",
+        "reject": "Отклонить", "close": "Закрыть", "detail": "Деталь наряда",
+        "kpi_total": "Всего", "kpi_inwork": "В работе", "kpi_overdue": "Просрочено",
+        "kpi_emergency": "Аварийные", "kpi_closed_today": "Закрыто сегодня",
+        "col_new": "Новые", "col_work": "В работе", "col_paused": "Приостановлены",
+        "col_overdue": "Просрочены", "col_closed": "Закрыты",
+        "step_created": "Создан", "step_accepted": "Принят", "step_work": "В работе",
+        "step_closed": "Закрыт", "overdue_by": "просрочено на {v}", "left": "{v}",
+        "sort": "Сортировка", "sort_deadline": "По дедлайну", "sort_priority": "По приоритету",
+        "sort_status": "По статусу", "group_by": "Ряды", "grp_equipment": "Оборудование",
+        "grp_assignee": "Исполнители", "reason_ph": "Причина отклонения",
+        "confirm_reject": "Подтвердить отклонение", "next_orders": "Следующие наряды",
+        "my_order": "Мой наряд", "download": "Скачать CSV",
+        "toast_accept": "Наряд {num} принят в работу", "toast_pause": "Наряд {num} приостановлен",
+        "toast_close": "Наряд {num} закрыт", "toast_reject": "Наряд {num} отклонён",
+        "no_deadline": "без дедлайна", "role_label": "Роль",
+        "empty_col_hint": "Перетащите фильтры или создайте наряд",
+    },
+    "KZ": {
+        "all": "Барлығы", "board": "Тақта", "list": "Тізім", "timeline": "Timeline",
+        "view": "Көрініс", "search_ph": "Іздеу: нөмір, жабдық, цех…",
+        "shift": "Ауысым", "online": "Online", "offline": "Offline",
+        "no_orders": "Нарядтар жоқ", "show_all": "Барлығын көрсету", "show_less": "Жасыру",
+        "open": "Ашу", "accept": "Жұмысқа қабылдау", "pause": "Тоқтата тұру",
+        "reject": "Қабылдамау", "close": "Жабу", "detail": "Наряд тетіктері",
+        "kpi_total": "Барлығы", "kpi_inwork": "Жұмыста", "kpi_overdue": "Мерзімі өткен",
+        "kpi_emergency": "Апаттық", "kpi_closed_today": "Бүгін жабылған",
+        "col_new": "Жаңа", "col_work": "Жұмыста", "col_paused": "Тоқтатылған",
+        "col_overdue": "Мерзімі өткен", "col_closed": "Жабылған",
+        "step_created": "Құрылды", "step_accepted": "Қабылданды", "step_work": "Жұмыста",
+        "step_closed": "Жабылды", "overdue_by": "мерзімінен {v} өтті", "left": "{v}",
+        "sort": "Сұрыптау", "sort_deadline": "Мерзімі бойынша", "sort_priority": "Басымдық бойынша",
+        "sort_status": "Мәртебе бойынша", "group_by": "Қатарлар", "grp_equipment": "Жабдық",
+        "grp_assignee": "Орындаушылар", "reason_ph": "Қабылдамау себебі",
+        "confirm_reject": "Қабылдамауды растау", "next_orders": "Келесі нарядтар",
+        "my_order": "Менің нарядым", "download": "CSV жүктеу",
+        "toast_accept": "{num} наряды жұмысқа қабылданды", "toast_pause": "{num} наряды тоқтатылды",
+        "toast_close": "{num} наряды жабылды", "toast_reject": "{num} наряды қабылданбады",
+        "no_deadline": "мерзімсіз", "role_label": "Рөл",
+        "empty_col_hint": "Сүзгілерді өзгертіңіз немесе наряд құрыңыз",
+    },
+}
+
+#: Колонки доски: (ключ, статусы, css-класс заголовка, подпись).
+_BOARD_COLUMNS: Tuple[Tuple[str, Tuple[str, ...], str, str], ...] = (
+    ("new", ("Выдан", "В очереди"), "st-new", "col_new"),
+    ("work", ("В работе", "Принят в работу", "Проверка ИИ", "На доработку"), "st-work", "col_work"),
+    ("paused", ("Приостановлен",), "st-paused", "col_paused"),
+    ("overdue", ("Просрочен",), "st-overdue", "col_overdue"),
+    ("closed", ("Закрыт", "Исполнено"), "st-closed", "col_closed"),
+)
+
+
+def _u(lang: str, key: str) -> str:
+    """Строка дополнительных подписей пульта (RU/KZ)."""
+    block = _UI_TEXT.get(lang, _UI_TEXT["RU"])
+    return block.get(key, _UI_TEXT["RU"].get(key, key))
+
+
+def _initials(fio: Any) -> str:
+    """Инициалы исполнителя для аватара."""
+    parts = [p for p in str(fio or "").split() if p]
+    if not parts:
+        return "—"
+    letters = "".join(p[0] for p in parts[:2]).upper()
+    return letters
+
+
+def _fmt_duration(minutes: float) -> str:
+    """Человекочитаемая длительность."""
+    total = int(max(0, minutes))
+    return f"{total // 60} ч {total % 60:02d} мин" if total >= 60 else f"{total} мин"
+
+
+def _deadline_meta(created: Any, deadline: Any) -> Tuple[int, str, str, bool]:
+    """Вернуть (процент остатка, css-класс, текст, флаг просрочки)."""
+    try:
+        dl = pd.to_datetime(deadline, errors="coerce")
+    except (TypeError, ValueError):
+        dl = pd.NaT
+    if pd.isna(dl):
+        return 100, "ok", "", False
+    now = datetime.datetime.now()
+    dl = dl.to_pydatetime()
+    try:
+        cr = pd.to_datetime(created, errors="coerce")
+        cr = cr.to_pydatetime() if pd.notna(cr) else now
+    except (TypeError, ValueError):
+        cr = now
+    remain = (dl - now).total_seconds()
+    total = (dl - cr).total_seconds()
+    if remain < 0:
+        return 0, "bad", "⏱ " + _fmt_duration(-remain / 60), True
+    frac = remain / total if total > 0 else 0.0
+    pct = max(0, min(100, int(frac * 100)))
+    fill = "ok" if frac > 0.5 else ("warn" if frac >= 0.2 else "bad")
+    return pct, fill, "⏱ " + _fmt_duration(remain / 60), fill == "bad"
+
+
+def _sparkline_svg(values: Sequence[float], color: str = "#4a6b8a", width: int = 128, height: int = 26) -> str:
+    """Мини-график тренда за 7 дней (inline SVG). Пусто, если данных нет."""
+    vals = [float(v) for v in values if v is not None]
+    if len(vals) < 2 or max(vals) <= 0:
+        return ""
+    lo, hi = 0.0, max(vals)
+    span = hi - lo or 1.0
+    step = width / (len(vals) - 1)
+    points = " ".join(
+        f"{i * step:.1f},{height - (v - lo) / span * (height - 4) - 2:.1f}"
+        for i, v in enumerate(vals)
+    )
+    return (
+        f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" '
+        f'preserveAspectRatio="none"><polyline points="{points}" fill="none" '
+        f'stroke="{color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></svg>'
+    )
+
+
+def _render_command_bar(lang: str, role_key: str, is_offline: bool, title_key: str = "m_title") -> None:
+    """Командная строка: экран+роль, поиск, часы и статус связи."""
+    now = datetime.datetime.now()
+    role_label = t(lang, f"role_{role_key}")
+    shift = now.hour // 6 + 1
+    status_cls = "naryad-status-offline" if is_offline else "naryad-status-online"
+    status_txt = _u(lang, "offline") if is_offline else _u(lang, "online")
+    with st.container(key="cmdbar"):
+        left, center, right = st.columns([3, 4, 3])
+        with left:
+            st.markdown(
+                f'<div class="cmd-title">{t(lang, title_key)}</div>'
+                f'<div class="cmd-role">{_u(lang, "role_label")}: {role_label}</div>',
+                unsafe_allow_html=True,
+            )
+        with center:
+            st.text_input(
+                "search", key="disp_search", label_visibility="collapsed",
+                placeholder=_u(lang, "search_ph"),
+            )
+        with right:
+            st.markdown(
+                f'<div class="cmd-clock">{now.strftime("%d.%m.%Y  %H:%M:%S")}'
+                f'<div class="cmd-shift">{_u(lang, "shift")} {shift} · '
+                f'<span class="{status_cls}" style="border:0;padding:0;">{status_txt}</span></div></div>',
+                unsafe_allow_html=True,
+            )
+
+
+def _render_kpi_strip(lang: str, df: pd.DataFrame) -> None:
+    """Полоса из 5 KPI-карточек со спарклайнами за 7 дней."""
+    if df.empty or "status" not in df.columns:
+        df = pd.DataFrame(columns=["status", "priority", "created_at"])
+
+    def _count(mask: pd.Series) -> int:
+        try:
+            return int(mask.sum())
+        except Exception:  # noqa: BLE001
+            return 0
+
+    statuses = df["status"].astype(str) if "status" in df.columns else pd.Series(dtype=str)
+    priorities = df["priority"].astype(str) if "priority" in df.columns else pd.Series(dtype=str)
+    created = pd.to_datetime(df.get("created_at"), errors="coerce") if "created_at" in df.columns else pd.Series([], dtype="datetime64[ns]")
+
+    def trend(mask_values: Sequence[bool]) -> List[int]:
+        if created.empty or len(created) != len(df):
+            return []
+        days = [(datetime.datetime.now().date() - datetime.timedelta(days=d)) for d in range(6, -1, -1)]
+        result = []
+        for day in days:
+            count = 0
+            for ts, flag in zip(created, mask_values):
+                if flag and pd.notna(ts) and ts.date() == day:
+                    count += 1
+            result.append(count)
+        return result
+
+    work_mask = statuses.isin(("В работе", "Принят в работу", "Проверка ИИ"))
+    overdue_mask = statuses == "Просрочен"
+    emergency_mask = (priorities == "Аварийный") & (~statuses.isin(("Закрыт", "Исполнено")))
+    closed_mask = statuses.isin(("Закрыт", "Исполнено"))
+    today = datetime.datetime.now().strftime("%Y-%m-%d")
+    try:
+        closed_today = db_scalar(
+            "SELECT COUNT(*) AS n FROM order_events WHERE action = 'Закрыт' AND event_time LIKE ?",
+            (today + "%",),
+        )
+    except Exception:  # noqa: BLE001
+        closed_today = 0
+
+    cards = [
+        (t(lang, "kpi_total"), len(df), "", "", _u(lang, "kpi_total"), trend([True] * len(df))),
+        (_u(lang, "kpi_inwork"), _count(work_mask), "", "warn", _u(lang, "kpi_inwork"), trend(list(work_mask))),
+        (_u(lang, "kpi_overdue"), _count(overdue_mask), "alarm pulse" if _count(overdue_mask) > 0 else "", "alarm", _u(lang, "kpi_overdue"), trend(list(overdue_mask))),
+        (_u(lang, "kpi_emergency"), _count(emergency_mask), "alarm" if _count(emergency_mask) > 0 else "", "alarm", _u(lang, "kpi_emergency"), trend(list(emergency_mask))),
+        (_u(lang, "kpi_closed_today"), int(closed_today), "good", "good", _u(lang, "kpi_closed_today"), trend(list(closed_mask))),
+    ]
+    columns = st.columns(len(cards))
+    for index, (label, value, extra, accent_cls, caption, spark) in enumerate(cards):
+        color = {"warn": "#d9a441", "alarm": "#c0504d", "good": "#4f9d69"}.get(accent_cls, "#4a6b8a")
+        with columns[index]:
+            st.markdown(
+                f'<div class="disp-kpi disp-anim d{min(index + 1, 6)} {extra}" style="--kpi-accent:{color};">'
+                f'<div class="disp-kpi-label">{label}</div>'
+                f'<div class="disp-kpi-value">{value}</div>'
+                f'<div class="disp-kpi-sub">{caption}</div>'
+                f"{_sparkline_svg(spark, color)}"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+
+def _render_empty_state(lang: str) -> None:
+    """Заглушка для пустой колонки/списка."""
+    st.markdown(
+        f'<div class="empty-state"><div class="icon">▤</div>'
+        f'<div>{_u(lang, "no_orders")}</div></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def _status_stepper_html(lang: str, status: Any, created: Any = "", order_id: Optional[int] = None) -> str:
+    """HTML-степпер жизненного цикла наряда (Создан→Принят→В работе→Закрыт)."""
+    times: Dict[str, str] = {}
+    if order_id is not None:
+        try:
+            events = db_fetchall(
+                "SELECT action, event_time FROM order_events WHERE order_id = ? "
+                "ORDER BY event_time ASC, rowid ASC",
+                (int(order_id),),
+            )
+            for ev in events:
+                times[str(ev.get("action"))] = str(ev.get("event_time"))
+        except Exception:  # noqa: BLE001
+            times = {}
+    steps = (
+        (_u(lang, "step_created"), str(created or "")),
+        (_u(lang, "step_accepted"), times.get("В работе", "")),
+        (_u(lang, "step_work"), times.get("Приостановлен", "")),
+        (_u(lang, "step_closed"), times.get("Закрыт", times.get("Отклонён", ""))),
+    )
+    done_index = {
+        "Выдан": 0, "В очереди": 0, "Принят в работу": 1, "В работе": 1,
+        "Приостановлен": 2, "Просрочен": 2, "Отклонён": 3,
+        "Закрыт": 3, "Исполнено": 3,
+    }.get(str(status), 0)
+    parts = ['<div class="stepper">']
+    for index, (label, when) in enumerate(steps):
+        css = "done" if index < done_index else ("current" if index == done_index else "future")
+        parts.append(
+            f'<div class="step {css}"><div class="dot"></div>'
+            f'<div class="lbl">{label}</div><div class="tm">{when or "—"}</div></div>'
+        )
+    parts.append("</div>")
+    return "".join(parts)
+
+
+def _render_icon_actions(lang: str, row: pd.Series, prefix: str) -> None:
+    """Ряд иконок-действий (play/pause/close/open) для карточки/строки."""
+    order_id = int(row["id"])
+    order_num = str(row["order_num"])
+    status = str(row["status"])
+    accept_enabled = status not in ("В работе", "Закрыт", "Исполнено", "Проверка ИИ")
+    pause_enabled = status == "В работе"
+    close_enabled = status in ("В работе", "Просрочен", "Приостановлен")
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        if st.button("", icon=":material/play_arrow:", key=f"{prefix}_play_{order_id}", help=_u(lang, "accept"), disabled=not accept_enabled):
+            update_order_status(order_id, "В работе", "Принят в работу")
+            st.toast(_u(lang, "toast_accept").format(num=order_num))
+            st.rerun()
+    with c2:
+        if st.button("", icon=":material/pause:", key=f"{prefix}_pause_{order_id}", help=_u(lang, "pause"), disabled=not pause_enabled):
+            update_order_status(order_id, "Приостановлен", "Пауза")
+            st.toast(_u(lang, "toast_pause").format(num=order_num))
+            st.rerun()
+    with c3:
+        if st.button("", icon=":material/close:", key=f"{prefix}_close_{order_id}", help=_u(lang, "close"), disabled=not close_enabled):
+            update_order_status(order_id, "Закрыт", "Закрыт мастером")
+            st.toast(_u(lang, "toast_close").format(num=order_num))
+            st.rerun()
+    with c4:
+        if st.button("", icon=":material/open_in_full:", key=f"{prefix}_open_{order_id}", help=_u(lang, "open")):
+            _order_detail_dialog(lang, order_id)
+
+
+def _render_order_card(lang: str, row: pd.Series) -> None:
+    """Компактная карточка наряда для доски."""
+    order_id = int(row["id"])
+    priority = str(row["priority"])
+    kind = _PRIORITY_BADGE_KIND.get(priority, "gray")
+    emergency = priority == "Аварийный"
+    pct, fill, dtext, dbad = _deadline_meta(row.get("created_at"), row.get("deadline"))
+    equipment = str(row.get("equipment") or "—")
+    unit = str(row.get("unit") or "—")
+    marker = f"card-prio-{kind}" + (" card-emergency" if emergency else "")
+    with st.container(border=True, key=f"card_{order_id}"):
+        st.markdown(
+            f'<span class="{marker}" style="display:none;"></span>'
+            f'<div class="card-top"><span class="card-num">{row["order_num"]}</span>'
+            f"{priority_badge_html(lang, priority)}</div>"
+            f'<div class="card-eq">{equipment}</div>'
+            f'<div class="card-unit">{unit}</div>'
+            f'<div class="deadline-wrap"><div class="deadline-bar">'
+            f'<span class="{fill}" style="width:{pct}%;"></span></div>'
+            f'<div class="deadline-text{" bad" if dbad else ""}">{dtext}</div></div>',
+            unsafe_allow_html=True,
+        )
+        bottom = st.columns([2, 3])
+        with bottom[0]:
+            st.markdown(
+                f'<div class="card-bottom"><span class="avatar">{_initials(row.get("assignee"))}</span></div>',
+                unsafe_allow_html=True,
+            )
+        with bottom[1]:
+            _render_icon_actions(lang, row, f"card{order_id}")
+
+
+def _render_board(lang: str, df: pd.DataFrame) -> None:
+    """Канбан-доска с 5 колонками."""
+    columns = st.columns(len(_BOARD_COLUMNS))
+    for (key, statuses, css, title_key), column in zip(_BOARD_COLUMNS, columns):
+        subset = df[df["status"].astype(str).isin(statuses)]
+        with column:
+            st.markdown(
+                f'<div class="board-head {css}"><span class="bh-title">{_u(lang, title_key)}</span>'
+                f'<span class="bh-count">{len(subset)}</span></div>',
+                unsafe_allow_html=True,
+            )
+            if subset.empty:
+                _render_empty_state(lang)
+                continue
+            if key == "closed":
+                show_all = bool(st.session_state.get("board_closed_all", False))
+                visible = subset if show_all else subset.head(5)
+                for _, row in visible.iterrows():
+                    _render_order_card(lang, row)
+                if len(subset) > 5:
+                    label = _u(lang, "show_less") if show_all else _u(lang, "show_all")
+                    if st.button(label, key="board_closed_toggle", use_container_width=True):
+                        st.session_state["board_closed_all"] = not show_all
+                        st.rerun()
+            else:
+                for _, row in subset.head(15).iterrows():
+                    _render_order_card(lang, row)
+
+
+def _render_list(lang: str, df: pd.DataFrame) -> None:
+    """Плотный список нарядов с прилипающим заголовком."""
+    sort_key = st.selectbox(
+        _u(lang, "sort"),
+        [_u(lang, "sort_deadline"), _u(lang, "sort_priority"), _u(lang, "sort_status")],
+        key="list_sort",
+    )
+    data = df.copy()
+    if data.empty:
+        _render_empty_state(lang)
+        return
+    data["_dl"] = pd.to_datetime(data.get("deadline"), errors="coerce")
+    if sort_key == _u(lang, "sort_priority"):
+        order = {"Аварийный": 0, "Высокий": 1, "Обычный": 2, "Плановый": 3}
+        data["_p"] = data["priority"].map(order).fillna(9)
+        data = data.sort_values("_p")
+    elif sort_key == _u(lang, "sort_status"):
+        data = data.sort_values("status")
+    else:
+        data = data.sort_values("_dl", na_position="last")
+
+    st.markdown(
+        f'<div class="list-head">{_u(lang, "col_new")} · {c(lang, "equipment")} · '
+        f'{c(lang, "unit")} · {c(lang, "assignee")} · {c(lang, "deadline")}</div>',
+        unsafe_allow_html=True,
+    )
+    if data.empty:
+        _render_empty_state(lang)
+        return
+    for _, row in data.head(80).iterrows():
+        order_id = int(row["id"])
+        priority = str(row["priority"])
+        kind = _PRIORITY_BADGE_KIND.get(priority, "gray")
+        pct, fill, dtext, dbad = _deadline_meta(row.get("created_at"), row.get("deadline"))
+        with st.container(key=f"lrow_{order_id}"):
+            cols = st.columns([1.2, 1.1, 2.2, 1.3, 1.2, 1.6, 1.2, 1.9])
+            cols[0].markdown(
+                f'<span class="lrow-marker {kind}" style="display:none;"></span>'
+                f'<div class="lrow-num">{row["order_num"]}</div>',
+                unsafe_allow_html=True,
+            )
+            cols[1].markdown(priority_badge_html(lang, priority), unsafe_allow_html=True)
+            cols[2].markdown(f'<div class="lrow-eq">{row.get("equipment") or "—"}</div>', unsafe_allow_html=True)
+            cols[3].markdown(f'<div class="lrow-mut">{row.get("unit") or "—"}</div>', unsafe_allow_html=True)
+            cols[4].markdown(f'<div class="lrow-mut">{row.get("assignee") or "—"}</div>', unsafe_allow_html=True)
+            cols[5].markdown(
+                f'<div class="lrow-bar"><div class="deadline-bar"><span class="{fill}" style="width:{pct}%;"></span></div>'
+                f'<div class="deadline-text{" bad" if dbad else ""}">{dtext}</div></div>',
+                unsafe_allow_html=True,
+            )
+            cols[6].markdown(status_badge_html(lang, row["status"]), unsafe_allow_html=True)
+            with cols[7]:
+                _render_icon_actions(lang, row, f"list{order_id}")
+
+    st.download_button(
+        _u(lang, "download"),
+        data=data.drop(columns=[c for c in ("_dl", "_p") if c in data.columns]).to_csv(index=False).encode("utf-8-sig"),
+        file_name="naryad_list.csv",
+        mime="text/csv",
+        key="disp_list_csv",
+    )
+
+
+def _render_timeline(lang: str, df: pd.DataFrame) -> None:
+    """Диаграмма Ганта по нарядам (plotly)."""
+    group_key = st.segmented_control(
+        _u(lang, "group_by"),
+        [_u(lang, "grp_equipment"), _u(lang, "grp_assignee")],
+        default=_u(lang, "grp_equipment"),
+        key="tl_group",
+    )
+    data = df.copy()
+    data["_start"] = pd.to_datetime(data.get("created_at"), errors="coerce")
+    data["_end"] = pd.to_datetime(data.get("deadline"), errors="coerce")
+    data = data.dropna(subset=["_start", "_end"])
+    if data.empty:
+        _render_empty_state(lang)
+        return
+    y_col = "assignee" if group_key == _u(lang, "grp_assignee") else "equipment"
+    data[y_col] = data[y_col].fillna("—")
+    palette = {
+        "Выдан": "#4a6b8a", "В очереди": "#4a6b8a", "Принят в работу": "#d9822b",
+        "В работе": "#d9822b", "Приостановлен": "#d9a441", "Просрочен": "#c0504d",
+        "Закрыт": "#4f9d69", "Исполнено": "#4f9d69", "Проверка ИИ": "#4a6b8a",
+        "На доработку": "#d9a441",
+    }
+    figure = px.timeline(
+        data, x_start="_start", x_end="_end", y=y_col, color="status",
+        color_discrete_map=palette, hover_data=["order_num", "priority"],
+    )
+    future = data["_end"].max() if not data["_end"].empty else datetime.datetime.now()
+    horizon = future + datetime.timedelta(hours=2)
+    figure.update_xaxes(range=[data["_start"].min(), horizon])
+    figure.update_yaxes(autorange="reversed")
+    figure.add_vline(x=datetime.datetime.now(), line_color="#c0504d", line_width=2, line_dash="dash")
+    figure.update_layout(
+        template=("plotly_dark" if st.session_state.get("theme", "dark") == "dark" else "plotly_white"),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        height=max(240, 34 * data[y_col].nunique() + 90), margin=dict(l=10, r=10, t=30, b=10),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+    )
+    with st.container(key="timeline_box"):
+        _stretch(st.plotly_chart, figure)
+
+
+@st.dialog("Деталь наряда", width="large")
+def _order_detail_dialog(lang: str, order_id: int) -> None:
+    """Деталь наряда: степпер статусов, факты и панель действий."""
+    frame = load_live_orders(limit=100000)
+    sub = frame[frame["id"].astype(str) == str(order_id)]
+    if sub.empty:
+        st.warning(_u(lang, "no_orders"))
+        return
+    row = sub.iloc[0]
+    status = str(row["status"])
+    priority = str(row["priority"])
+    st.markdown(
+        f'<div class="card-top"><span class="myorder-num">{row["order_num"]}</span>'
+        f"{priority_badge_html(lang, priority)}{status_badge_html(lang, status)}</div>",
+        unsafe_allow_html=True,
+    )
+
+    events = db_fetchall(
+        "SELECT action, event_time FROM order_events WHERE order_id = ? ORDER BY event_time ASC, rowid ASC",
+        (int(order_id),),
+    )
+    times: Dict[str, str] = {}
+    for ev in events:
+        times[str(ev.get("action"))] = str(ev.get("event_time"))
+    steps = [
+        (_u(lang, "step_created"), str(row.get("created_at") or "")),
+        (_u(lang, "step_accepted"), times.get("В работе", "")),
+        (_u(lang, "step_work"), times.get("Приостановлен", "")),
+        (_u(lang, "step_closed"), times.get("Закрыт", times.get("Отклонён", ""))),
+    ]
+    done_index = {"Выдан": 0, "В очереди": 0, "Принят в работу": 1, "В работе": 1,
+                  "Приостановлен": 2, "Просрочен": 2, "Закрыт": 3, "Исполнено": 3}.get(status, 0)
+    html_steps = ['<div class="stepper">']
+    for index, (label, when) in enumerate(steps):
+        cls = "done" if index < done_index else ("current" if index == done_index else "future")
+        html_steps.append(
+            f'<div class="step {cls}"><div class="dot"></div>'
+            f'<div class="lbl">{label}</div><div class="tm">{when or "—"}</div></div>'
+        )
+    html_steps.append("</div>")
+    st.markdown("".join(html_steps), unsafe_allow_html=True)
+
+    st.markdown(
+        f'<div class="disp-facts">'
+        f'<div><div class="disp-fact-label">{c(lang, "equipment")}</div><div class="disp-fact-value">{row.get("equipment") or "—"}</div></div>'
+        f'<div><div class="disp-fact-label">{c(lang, "unit")}</div><div class="disp-fact-value">{row.get("unit") or "—"}</div></div>'
+        f'<div><div class="disp-fact-label">{c(lang, "assignee")}</div><div class="disp-fact-value">{row.get("assignee") or "—"}</div></div>'
+        f'<div><div class="disp-fact-label">{c(lang, "deadline")}</div><div class="disp-fact-value">{row.get("deadline") or "—"}</div></div>'
+        f'<div><div class="disp-fact-label">{t(lang, "kanban_filter_priority")}</div><div class="disp-fact-value">{priority_label(lang, priority)}</div></div>'
+        f'<div><div class="disp-fact-label">{c(lang, "description")}</div><div class="disp-fact-value">{row.get("description") or "—"}</div></div>'
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+    st.divider()
+    accept_enabled = status not in ("В работе", "Закрыт", "Исполнено", "Проверка ИИ")
+    pause_enabled = status == "В работе"
+    act1, act2, act3, act4 = st.columns([2.4, 1.4, 1.6, 3.6])
+    with act1:
+        if st.button(_u(lang, "accept"), type="primary", key=f"dlg_accept_{order_id}", icon=":material/play_arrow:", disabled=not accept_enabled, use_container_width=True):
+            update_order_status(int(order_id), "В работе", "Принят в работу")
+            st.toast(_u(lang, "toast_accept").format(num=row["order_num"]))
+            st.rerun()
+    with act2:
+        if st.button(_u(lang, "pause"), key=f"dlg_pause_{order_id}", icon=":material/pause:", disabled=not pause_enabled, use_container_width=True):
+            update_order_status(int(order_id), "Приостановлен", "Пауза")
+            st.toast(_u(lang, "toast_pause").format(num=row["order_num"]))
+            st.rerun()
+    with act3:
+        with st.popover(_u(lang, "reject"), icon=":material/close:", disabled=status in ("Закрыт", "Исполнено", "Отклонён"), use_container_width=True, key=f"dlg_reject_{order_id}"):
+            reason = st.text_input(_u(lang, "reason_ph"), key=f"dlg_reason_{order_id}")
+            if st.button(_u(lang, "confirm_reject"), key=f"dlg_reject_confirm_{order_id}", type="primary"):
+                update_order_status(int(order_id), "Отклонён", reason or "Причина не указана")
+                st.toast(_u(lang, "toast_reject").format(num=row["order_num"]))
+                st.rerun()
+    with act4:
+        st.empty()
+
+
+def _render_dispatcher(lang: str, df: pd.DataFrame) -> None:
+    """Фильтры, переключатель вида и основная область (доска/список/таймлайн)."""
+    search = str(st.session_state.get("disp_search", "") or "").strip().lower()
+    filtered = df
+    if search and "order_num" in df.columns:
+        haystack = (
+            df.get("order_num", pd.Series(dtype=str)).astype(str).str.lower()
+            + " " + df.get("equipment", pd.Series(dtype=str)).astype(str).str.lower()
+            + " " + df.get("unit", pd.Series(dtype=str)).astype(str).str.lower()
+        )
+        filtered = df[haystack.str.contains(search, na=False, regex=False)]
+
+    if "status" not in filtered.columns:
+        filtered = pd.DataFrame(columns=["status"])
+
+    units = [str(u) for u in dict.fromkeys(filtered.get("unit", pd.Series(dtype=str)).dropna().astype(str))] if "unit" in filtered.columns else []
+    statuses = [str(s) for s in dict.fromkeys(filtered.get("status", pd.Series(dtype=str)).dropna().astype(str))] if "status" in filtered.columns else []
+
+    f1, f2, f3, f4 = st.columns([2, 2, 2, 2])
+    with f1:
+        prio_labels = [_u(lang, "all")] + [priority_label(lang, p) for p in PRIORITY_OPTIONS]
+        prio_choice = st.pills(t(lang, "kanban_filter_priority"), prio_labels, default=_u(lang, "all"), key="disp_prio")
+        if prio_choice and prio_choice != _u(lang, "all"):
+            raw = next((p for p in PRIORITY_OPTIONS if priority_label(lang, p) == prio_choice), None)
+            if raw:
+                filtered = filtered[filtered["priority"].astype(str) == raw]
+    with f2:
+        unit_labels = [_u(lang, "all")] + units
+        unit_choice = st.pills(c(lang, "unit"), unit_labels, default=_u(lang, "all"), key="disp_unit")
+        if unit_choice and unit_choice != _u(lang, "all") and "unit" in filtered.columns:
+            filtered = filtered[filtered["unit"].astype(str) == unit_choice]
+    with f3:
+        status_labels = [_u(lang, "all")] + [status_label(lang, s) for s in statuses]
+        status_choice = st.pills(t(lang, "kanban_filter_status"), status_labels, default=_u(lang, "all"), key="disp_status")
+        if status_choice and status_choice != _u(lang, "all"):
+            raw = next((s for s in statuses if status_label(lang, s) == status_choice), None)
+            if raw:
+                filtered = filtered[filtered["status"].astype(str) == raw]
+    with f4:
+        view = st.segmented_control(
+            _u(lang, "view"),
+            [_u(lang, "board"), _u(lang, "list"), _u(lang, "timeline")],
+            default=_u(lang, "board"),
+            key="disp_view",
+        )
+
+    if view == _u(lang, "list"):
+        _render_list(lang, filtered)
+    elif view == _u(lang, "timeline"):
+        _render_timeline(lang, filtered)
+    else:
+        _render_board(lang, filtered)
+
+
+@st.fragment(run_every=30)
+def _render_dispatcher_live(lang: str, df: pd.DataFrame) -> None:
+    """Живая область пульта: авто-обновление данных доски раз в 30 секунд."""
+    _render_dispatcher(lang, df)
+
+
 def render_master_screen(lang: str, is_offline: bool) -> None:
     """Полный экран мастера смены: алерты, KPI и три вкладки."""
-    st.header(t(lang, "m_title"))
-
-    # --- Активные алерты контроля сроков (сверху экрана) ---
-    st.subheader("🚨 " + t(lang, "alerts_header"))
-    alerts = call_deadlines_and_escalations()
-    has_alert = False
-    for message in alerts.get("expired", []):
-        st.error(message)
-        has_alert = True
-    for message in alerts.get("escalations", []):
-        st.error(message)
-        has_alert = True
-    for message in alerts.get("warnings", []):
-        st.warning(message)
-        has_alert = True
-    if not has_alert:
-        st.caption("✅ " + t(lang, "no_alerts"))
-
-    # --- Сетка метрик в виде аппаратного пульта ---
     df_live = load_live_orders(limit=100000)
     if "status" not in df_live.columns:
         # Защита: при ошибке БД db_query_df вернёт пустой DataFrame без колонок.
-        df_live = pd.DataFrame(columns=["status"])
+        df_live = pd.DataFrame(columns=["status", "priority", "created_at"])
 
-    col_total, col_inwork, col_overdue, col_closed = st.columns(4)
-    with col_total:
-        render_metric_card(
-            t(lang, "kpi_total"),
-            len(df_live),
-            t(lang, "kpi_total_sub"),
-            accent="#f8fafc",
-        )
-    with col_inwork:
-        render_metric_card(
-            t(lang, "kpi_inwork"),
-            len(df_live[df_live["status"] == "В работе"]),
-            t(lang, "kpi_inwork_sub"),
-            accent="#fbbf24",
-        )
-    with col_overdue:
-        render_metric_card(
-            t(lang, "kpi_overdue"),
-            len(df_live[df_live["status"] == "Просрочен"]),
-            t(lang, "kpi_overdue_sub"),
-            accent="#f87171",
-        )
-    with col_closed:
-        render_metric_card(
-            t(lang, "kpi_closed"),
-            len(df_live[df_live["status"] == "Закрыт"]),
-            t(lang, "kpi_closed_sub"),
-            accent="#4ade80",
-        )
+    _render_command_bar(lang, "master", is_offline)
+    _render_kpi_strip(lang, df_live)
+
+    # --- Активные алерты контроля сроков (компактно, не ломают раскладку) ---
+    alerts = call_deadlines_and_escalations()
+    expired = list(alerts.get("expired", [])) + list(alerts.get("escalations", []))
+    if expired:
+        with st.expander("🚨 " + t(lang, "alerts_header") + f" · {len(expired)}", expanded=False):
+            for message in expired:
+                st.error(message)
+            for message in alerts.get("warnings", []):
+                st.warning(message)
+    else:
+        st.caption("✅ " + t(lang, "no_alerts"))
 
     st.divider()
-    tab_issue, tab_kanban, tab_copilot = st.tabs(
+    _render_dispatcher_live(lang, df_live)
+
+    st.divider()
+    tab_issue, tab_copilot = st.tabs(
         [
             "➕ " + t(lang, "tab_issue"),
-            "📋 " + t(lang, "tab_kanban"),
             "🤖 " + t(lang, "tab_copilot"),
         ]
     )
     with tab_issue:
         render_master_issue_tab(lang, is_offline)
-    with tab_kanban:
-        render_master_kanban_tab(lang)
     with tab_copilot:
         render_master_copilot_tab(lang)
 
@@ -2730,60 +3898,128 @@ def render_worker_screen(lang: str, is_offline: bool) -> None:
         )
 
     labels = [order_label(row) for _, row in orders.iterrows()]
-    choice = st.selectbox(t(lang, "w_select"), labels, key="worker_order")
-    current = orders.iloc[labels.index(choice)]
+
+    # --- Самый срочный наряд + лента «Следующие наряды» ---
+    def _deadline_ts(value: Any) -> pd.Timestamp:
+        ts = pd.to_datetime(value, errors="coerce")
+        return ts if pd.notna(ts) else pd.Timestamp.max
+
+    urgent_row = min(orders.iterrows(), key=lambda pair: _deadline_ts(pair[1].get("deadline")))[1]
+    urgent_label = order_label(urgent_row)
+    chosen = st.session_state.get("worker_order")
+    if chosen not in labels:
+        chosen = urgent_label
+    next_choice = st.pills(_u(lang, "next_orders"), labels, default=chosen, key="worker_order")
+    if next_choice is None:
+        next_choice = chosen
+    current = orders.iloc[labels.index(next_choice)]
 
     priority = str(current["priority"])
     priority_kind = _PRIORITY_BADGE_KIND.get(priority, "gray")
-    with st.container(border=True):
+    status_value = str(current["status"])
+    deadline_value = current.get("deadline")
+
+    accept_enabled = status_value != "В работе"
+    pause_enabled = status_value == "В работе"
+    reject_enabled = status_value != "Отклонён"
+
+    # --- Крупный обратный отсчёт до дедлайна ---
+    countdown_text = "—"
+    countdown_cls = ""
+    try:
+        dl = pd.to_datetime(deadline_value, errors="coerce")
+        if pd.notna(dl):
+            remain = (dl.to_pydatetime() - datetime.datetime.now()).total_seconds() / 60
+            if remain < 0:
+                countdown_text = "−" + _fmt_duration(-remain)
+                countdown_cls = " bad"
+            else:
+                countdown_text = _fmt_duration(remain)
+                countdown_cls = " ok" if remain > 240 else ""
+    except (TypeError, ValueError):
+        pass
+
+    accept_label = _clean_label(t(lang, "w_accept"))
+    pause_label = _clean_label(t(lang, "w_pause"))
+    reject_label = _clean_label(t(lang, "w_reject"))
+
+    with st.container(border=True, key=f"myorder_{int(current['id'])}"):
         st.markdown(
             f'<span class="worker-card-marker worker-prio-{priority_kind}"></span>'
-            f'<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;">'
-            f'<span style="font-size:1.5rem;font-weight:800;">{current["order_num"]}</span>'
+            f'<div class="worker-card-head"><div class="worker-card-title">'
+            f'<span class="myorder-num">{current["order_num"]}</span>'
             f"{priority_badge_html(lang, priority)}"
-            f"{status_badge_html(lang, current['status'])}"
+            f"{status_badge_html(lang, status_value)}"
+            f"</div></div>"
+            f'<div class="worker-section-label" style="margin-top:14px;">{c(lang, "deadline")}</div>'
+            f'<div class="myorder-count{countdown_cls}">{countdown_text}</div>'
+            f'<div class="worker-facts" style="margin-top:16px;">'
+            f'<div class="worker-fact"><div class="worker-fact-label">{c(lang, "equipment")}</div>'
+            f'<div class="worker-fact-value">{current.get("equipment") or "—"}</div></div>'
+            f'<div class="worker-fact"><div class="worker-fact-label">{c(lang, "unit")}</div>'
+            f'<div class="worker-fact-value">{current.get("unit") or "—"}</div></div>'
+            f'<div class="worker-fact"><div class="worker-fact-label">{c(lang, "description")}</div>'
+            f'<div class="worker-fact-value">{current.get("description") or "—"}</div></div>'
             f"</div>",
             unsafe_allow_html=True,
         )
-        st.markdown(f"**{c(lang, 'description')}:** {current['description']}")
-        info_left, info_right = st.columns(2)
-        info_left.markdown(
-            f"**{c(lang, 'equipment')}:** {current.get('equipment') or '—'} "
-            f"({current.get('unit') or '—'})"
+        st.markdown(
+            _status_stepper_html(lang, status_value, current.get("created_at"), int(current["id"])),
+            unsafe_allow_html=True,
         )
-        info_right.markdown(
-            f"**{c(lang, 'deadline')}:** {current['deadline']}"
-        )
+        st.divider()
 
-    # --- Крупные кнопки под рабочие перчатки (min-height 56px через CSS) ---
-    with st.container():
-        st.markdown('<span class="worker-actions-marker"></span>', unsafe_allow_html=True)
-        btn_accept, btn_pause, btn_reject = st.columns(3)
-        with btn_accept:
-            if st.button(
-                t(lang, "w_accept"), type="primary", key="worker_accept"
-            ):
-                update_order_status(int(current["id"]), "В работе", "Принят исполнителем")
-                st.success(t(lang, "w_status_ok").format(status=status_label(lang, "В работе")))
-                st.rerun()
-        with btn_pause:
-            if st.button(t(lang, "w_pause"), key="worker_pause"):
-                update_order_status(int(current["id"]), "Приостановлен", "Пауза исполнителя")
-                st.info(t(lang, "w_paused"))
-                st.rerun()
-        with btn_reject:
-            reject_clicked = st.button(t(lang, "w_reject"), key="worker_reject")
-    if reject_clicked:
-        st.session_state["show_reject"] = True
-    if st.session_state.get("show_reject"):
-        reason = st.text_input(t(lang, "w_reject_reason"), key="worker_reject_reason")
-        if st.button(t(lang, "w_reject_btn"), key="worker_reject_confirm"):
-            update_order_status(
-                int(current["id"]), "Отклонён", reason or "Причина не указана"
-            )
-            st.session_state["show_reject"] = False
-            st.success(t(lang, "w_reject_ok"))
-            st.rerun()
+        # --- Три большие кнопки действий ---
+        with st.container(key="actions"):
+            act_accept, act_pause, act_reject = st.columns(3)
+            with act_accept:
+                if st.button(
+                    accept_label,
+                    type="primary",
+                    key="worker_accept",
+                    icon=":material/play_arrow:",
+                    disabled=not accept_enabled,
+                    use_container_width=True,
+                ):
+                    update_order_status(int(current["id"]), "В работе", "Принят исполнителем")
+                    st.toast(_u(lang, "toast_accept").format(num=current["order_num"]))
+                    st.rerun()
+            with act_pause:
+                if st.button(
+                    pause_label,
+                    key="worker_pause",
+                    icon=":material/pause:",
+                    disabled=not pause_enabled,
+                    use_container_width=True,
+                ):
+                    update_order_status(
+                        int(current["id"]), "Приостановлен", "Пауза исполнителя"
+                    )
+                    st.toast(_u(lang, "toast_pause").format(num=current["order_num"]))
+                    st.rerun()
+            with act_reject:
+                with st.popover(
+                    reject_label,
+                    icon=":material/close:",
+                    disabled=not reject_enabled,
+                    use_container_width=True,
+                    key="worker_reject",
+                ):
+                    reason = st.text_input(
+                        t(lang, "w_reject_reason"), key="worker_reject_reason"
+                    )
+                    if st.button(
+                        t(lang, "w_reject_btn"),
+                        key="worker_reject_confirm",
+                        type="primary",
+                    ):
+                        update_order_status(
+                            int(current["id"]),
+                            "Отклонён",
+                            reason or "Причина не указана",
+                        )
+                        st.toast(_u(lang, "toast_reject").format(num=current["order_num"]))
+                        st.rerun()
 
     st.divider()
     st.subheader("🏁 " + t(lang, "w_closing"))
@@ -3392,7 +4628,13 @@ def render_admin_screen(lang: str) -> None:
 # ==================================================================
 def render_manager_screen(lang: str) -> None:
     """Аналитика ТОиР: эффект, графики, предиктивный радар, документы."""
-    st.header(t(lang, "mg_title"))
+    _render_command_bar(lang, "manager", False, title_key="mg_title")
+    st.markdown(
+        '<div class="board-head st-work" style="margin-top:8px;"><span class="bh-title">'
+        + t(lang, "mg_title")
+        + "</span></div>",
+        unsafe_allow_html=True,
+    )
 
     closed_total = db_scalar(
         "SELECT COUNT(*) AS n FROM work_orders WHERE status = 'Закрыт'"
@@ -3485,7 +4727,11 @@ def render_top_faults_chart(lang: str) -> None:
         labels={"incidents": "Инциденты", "equipment": "Оборудование"},
     )
     figure.update_layout(
-        template="plotly_dark",
+        template=(
+            "plotly_dark"
+            if st.session_state.get("theme", "dark") == "dark"
+            else "plotly_white"
+        ),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         yaxis=dict(autorange="reversed"),
@@ -3529,7 +4775,11 @@ def render_status_chart(lang: str) -> None:
         marker=dict(line=dict(color="#0d1117", width=2)),
     )
     figure.update_layout(
-        template="plotly_dark",
+        template=(
+            "plotly_dark"
+            if st.session_state.get("theme", "dark") == "dark"
+            else "plotly_white"
+        ),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         margin=dict(l=10, r=10, t=10, b=10),
@@ -3831,7 +5081,11 @@ def render_downtime_section(lang: str) -> None:
         )
         figure.update_traces(textposition="outside")
         figure.update_layout(
-            template="plotly_dark",
+            template=(
+                "plotly_dark"
+                if st.session_state.get("theme", "dark") == "dark"
+                else "plotly_white"
+            ),
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
             margin=dict(l=10, r=10, t=10, b=10),
@@ -3938,6 +5192,31 @@ def render_1c_export_card(lang: str) -> None:
 # ==================================================================
 # 12. ТОЧКА ВХОДА
 # ==================================================================
+def render_footer() -> None:
+    """Нижний корпоративный футер: бренд, описание проекта и копирайт."""
+    st.markdown(
+        """
+<div class="naryad-footer">
+    <div class="naryad-footer-grid">
+        <div class="naryad-footer-col">
+            <div class="naryad-footer-brand">НарядAI</div>
+            <div class="naryad-footer-sub">АО «Костанайские минералы»</div>
+        </div>
+        <div class="naryad-footer-col naryad-footer-center">
+            <div>Интеллектуальная система оперативного контроля ТОиР,
+            выдачи и закрытия нарядов.</div>
+        </div>
+        <div class="naryad-footer-col naryad-footer-right">
+            <div>Qostanai AI Industry Hackathon 2026</div>
+        </div>
+    </div>
+    <div class="naryad-footer-copy">© 2026 Все права защищены</div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+
 def main() -> None:
     """Собрать и отрисовать приложение «НарядAI»."""
     st.set_page_config(
@@ -3947,9 +5226,11 @@ def main() -> None:
         initial_sidebar_state="expanded",
     )
 
-    inject_priority_css()
-    inject_custom_css()
-    inject_theme_css()
+    # Тема хранится в st.session_state["theme"]; значение переключателя —
+    # в st.session_state["theme_light"] (True = светлая «Бетон»).
+    theme = "light" if st.session_state.get("theme_light", False) else "dark"
+    st.session_state["theme"] = theme
+    inject_design(st.session_state["theme"])
 
     lang, role_key, is_offline = render_sidebar()
     render_header(lang, role_key, is_offline)
@@ -3963,8 +5244,7 @@ def main() -> None:
     else:
         render_manager_screen(lang)
 
-    st.divider()
-    st.caption(t(lang, "footer"))
+    render_footer()
 
 
 main()
