@@ -45,7 +45,7 @@
 
 # 1. Клонирование репозитория
 git clone https://github.com/NO7Nd7oo/naryad-ai
-cd hackathon-starter
+cd naryad-ai
 
 # 2. Создание и активация виртуального окружения
 uv venv .venv
